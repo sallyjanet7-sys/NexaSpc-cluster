@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NexaSpc — Digital Asset Trading Platform</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+<!-- ── NAVBAR ── -->
+<nav>
+  <a class="nav-logo" href="#" onclick="navigate('home')">
+    <div class="logo-mark">NX</div>
+    <span class="logo-text">NexaSpc</span>
+  </a>
+
+  <ul class="nav-links">
+    <li><a href="#" data-page="home"    onclick="navigate('home')">Home</a></li>
+    <li><a href="#" data-page="markets" onclick="navigate('markets')">Markets</a></li>
+    <li><a href="#" data-page="spot"    onclick="navigate('spot')">Spot</a></li>
+    <li><a href="#" data-page="margin"  onclick="navigate('margin')">Margin</a></li>
+    <li><a href="#" data-page="deposit" onclick="navigate('deposit')">Wallets</a></li>
+    <li><a href="#" data-page="about"   onclick="navigate('about')">About</a></li>
+    <li><a href="#" data-page="contact" onclick="navigate('contact')">Contact</a></li>
+  </ul>
+
+  <div class="nav-actions" id="nav-auth">
+    <!-- Rendered by JS -->
+  </div>
+</nav>
+
+<!-- ── TOAST ── -->
+<div class="toast-container" id="toast-container"></div>
+
+<!-- ══════════════════════════════════════════
+     PAGE: HOME
+══════════════════════════════════════════ -->
+<div class="page active" id="page-home">
+
+  <section class="hero">
+    <div class="hero-orb hero-orb-1"></div>
+    <div class="hero-orb hero-orb-2"></div>
+    <div class="hero-content">
+      <div class="hero-badge">🚀 Live Trading Now Available</div>
+
+      <h1 class="hero-title">
+        Trade Crypto<br>
+        <span class="gradient-text">Without Limits.</span>
+      </h1>
+
+      <p class="hero-subtitle">
+        NexaSpc is a next-generation digital asset exchange. Spot, margin, and options trading — 
+        powered by deep liquidity and military-grade security.
+      </p>
+
+      <div class="hero-actions">
+        <button class="btn btn-primary" onclick="navigate('signup')">Create Free Account</button>
+        <button class="btn btn-ghost" onclick="navigate('markets')">View Markets →</button>
+      </div>
+
+      <div class="stats-row">
+        <div class="stat-item">
+          <div class="stat-val">$4.2B+</div>
+          <div class="stat-label">24h Volume</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-val">350K+</div>
+          <div class="stat-label">Active Users</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-val">150+</div>
+          <div class="stat-label">Trading Pairs</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-val">99.98%</div>
+          <div class="stat-label">Uptime</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Live Ticker -->
+  <div class="ticker-wrap">
+    <div class="ticker" id="home-ticker">
+      <!-- Injected by JS -->
+    </div>
+  </div>
+
+  <!-- Feature highlights -->
+  <div class="feature-grid" style="padding-top:3rem">
+    <div class="feature-card">
+      <div class="feature-icon">⚡</div>
+      <div class="feature-title">Ultra-Low Latency</div>
+      <div class="feature-desc">Execute trades in milliseconds with our high-performance matching engine built for speed.</div>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🔐</div>
+      <div class="feature-title">Bank-Grade Security</div>
+      <div class="feature-desc">Multi-layer encryption, 2FA, and cold storage protect your assets around the clock.</div>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">📈</div>
+      <div class="feature-title">Advanced Charting</div>
+      <div class="feature-desc">Professional TradingView charts with dozens of indicators and drawing tools built in.</div>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">💰</div>
+      <div class="feature-title">Earn While You Hold</div>
+      <div class="feature-desc">Stake assets and earn passive income. Your deposits generate automatic profit returns.</div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ══════════════════════════════════════════
+     PAGE: MARKETS
+══════════════════════════════════════════ -->
+<div class="page" id="page-markets">
+  <div class="section">
+    <div class="section-header">
+      <h2 class="section-title">Live Markets</h2>
+      <button class="btn btn-ghost btn-sm" onclick="loadMarkets()">↻ Refresh</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Asset</th>
+            <th>Price (USDT)</th>
+            <th>24h Change</th>
+            <th>Volume</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="markets-tbody">
+          <tr><td colspan="5" style="text-align:center;padding:2rem;color:var(--text3)">Loading markets…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     PAGE: SPOT TRADING
+══════════════════════════════════════════ -->
+<div class="page" id="page-spot">
+  <div class="spot-layout">
+    <!-- Order Book -->
+    <div>
+      <div class="orderbook">
+        <div class="ob-title">Order Book · BTC/USDT</div>
+        <div style="font-size:0.7rem;color:var(--text3);display:flex;justify-content:space-between;margin-bottom:0.5rem">
+          <span>Price (USDT)</span><span>Amount (BTC)</span>
+        </div>
+        <div id="ob-asks"></div>
+        <div style="text-align:center;font-family:'Space Mono',monospace;font-weight:700;font-size:1.1rem;color:var(--accent);padding:0.75rem 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border);margin:0.5rem 0">
+          67,842.50
+        </div>
+        <div id="ob-bids"></div>
+      </div>
+
+      <!-- Trade Form -->
+      <div class="card" style="margin-top:1rem">
+        <div class="ob-title" style="margin-bottom:1rem">Place Order</div>
+        <div style="display:flex;gap:0.5rem;margin-bottom:1rem">
+          <button class="btn btn-success btn-sm" style="flex:1">Buy BTC</button>
+          <button class="btn btn-danger btn-sm" style="flex:1">Sell BTC</button>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Price (USDT)</label>
+          <input class="form-input" type="number" placeholder="67842.50" value="67842.50">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Amount (BTC)</label>
+          <input class="form-input" type="number" placeholder="0.001">
+        </div>
+        <button class="btn btn-success btn-full" onclick="toast('Order placed! (Demo mode)')">Place Buy Order</button>
+        <p style="font-size:0.75rem;color:var(--text3);margin-top:0.75rem;text-align:center">Spot trading requires a funded account</p>
+      </div>
+    </div>
+
+    <!-- Chart Area -->
+    <div>
+      <div class="chart-placeholder">
+        <div style="font-size:3rem">📊</div>
+        <div style="font-weight:700;font-size:1rem">BTC/USDT · Live Chart</div>
+        <div style="color:var(--text3);font-size:0.8rem;max-width:280px;text-align:center">
+          Integrate TradingView or Chart.js here for real-time candlestick data
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="navigate('markets')">← Back to Markets</button>
+      </div>
+
+      <!-- Recent Trades -->
+      <div class="card" style="margin-top:1rem">
+        <div class="ob-title" style="margin-bottom:1rem">Recent Trades</div>
+        <div style="font-size:0.7rem;color:var(--text3);display:flex;justify-content:space-between;margin-bottom:0.5rem">
+          <span>Price (USDT)</span><span>Amount</span><span>Time</span>
+        </div>
+        <div id="recent-trades">
+          <div class="ob-row"><span class="ob-ask">67,855.20</span><span>0.0412</span><span style="color:var(--text3)">14:32:01</span></div>
+          <div class="ob-row"><span class="ob-bid">67,840.10</span><span>0.1230</span><span style="color:var(--text3)">14:31:58</span></div>
+          <div class="ob-row"><span class="ob-ask">67,862.00</span><span>0.0088</span><span style="color:var(--text3)">14:31:55</span></div>
+          <div class="ob-row"><span class="ob-bid">67,835.50</span><span>0.3201</span><span style="color:var(--text3)">14:31:50</span></div>
+          <div class="ob-row"><span class="ob-ask">67,870.40</span><span>0.0550</span><span style="color:var(--text3)">14:31:44</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     PAGE: MARGIN
+══════════════════════════════════════════ -->
+<div class="page" id="page-margin">
+  <div class="section">
+    <h2 class="section-title" style="margin-bottom:1.5rem">Margin Trading</h2>
+    <div class="margin-warning">
+      ⚠️ <span>Margin trading involves significant risk. You can lose more than your initial deposit. Only trade with funds you can afford to lose.</span>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem">
+      <div class="card">
+        <div class="card-header">Margin Account</div>
+        <div class="card-value accent">$0.00</div>
+        <div class="card-sub">Available for margin</div>
+        <button class="btn btn-primary" style="margin-top:1.25rem;width:100%" onclick="navigate('deposit')">Fund Margin Account</button>
+      </div>
+      <div class="card">
+        <div class="card-header">Leverage</div>
+        <div class="card-value" style="color:#f472b6">10x</div>
+        <div class="card-sub">Max leverage on BTC/USDT</div>
+        <div style="margin-top:1rem">
+          <label class="form-label">Select Leverage</label>
+          <select class="form-input">
+            <option>2x</option><option>5x</option><option selected>10x</option><option>20x</option><option>50x</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:1.5rem">
+      <div class="ob-title" style="margin-bottom:1.25rem">Open Margin Position</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem">
+        <div class="form-group">
+          <label class="form-label">Pair</label>
+          <select class="form-input">
+            <option>BTC/USDT</option><option>ETH/USDT</option><option>SOL/USDT</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Amount (USDT)</label>
+          <input class="form-input" type="number" placeholder="100">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Direction</label>
+          <select class="form-input">
+            <option>Long (Buy)</option><option>Short (Sell)</option>
+          </select>
+        </div>
+      </div>
+      <div style="display:flex;gap:0.75rem">
+        <button class="btn btn-success" onclick="toast('Position opened! (Demo mode)')">Open Long</button>
+        <button class="btn btn-danger" onclick="toast('Short position opened! (Demo mode)')">Open Short</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     PAGE: DEPOSIT / WALLETS
+══════════════════════════════════════════ -->
+<div class="page" id="page-deposit">
+  <div class="section">
+    <h2 class="section-title" style="margin-bottom:0.5rem">Deposit Funds</h2>
+    <p style="color:var(--text2);font-size:0.9rem;margin-bottom:2rem">Select a cryptocurrency to get its deposit wallet address</p>
+
+    <!-- Coin Selector -->
+    <div class="coins-grid" id="coins-grid">
+      <!-- Injected by JS -->
+    </div>
+
+    <!-- Wallet Address Display -->
+    <div id="wallet-display" style="display:none">
+      <div class="card" style="max-width:600px">
+        <div class="card-header" id="selected-coin-label">Select a coin</div>
+
+        <div class="wallet-address-box">
+          <div class="wallet-address-label">Deposit Address</div>
+          <div class="wallet-address-row">
+            <span class="wallet-addr-text" id="wallet-addr-text"></span>
+            <button class="copy-btn" id="copy-addr-btn" onclick="copyAddress()">Copy</button>
+          </div>
+        </div>
+
+        <div style="margin-top:1.25rem;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.25);border-radius:8px;padding:0.875rem;font-size:0.8rem;color:var(--warn)">
+          ⚠️ Only send the selected cryptocurrency to this address. Sending other assets will result in permanent loss.
+        </div>
+
+        <!-- Confirm Deposit Form -->
+        <form id="deposit-form" style="margin-top:1.5rem">
+          <div class="form-group">
+            <label class="form-label">Coin</label>
+            <select class="form-input" id="deposit-coin-select">
+              <option value="BTC">Bitcoin (BTC)</option>
+              <option value="ETH">Ethereum (ETH)</option>
+              <option value="USDT">Tether (USDT)</option>
+              <option value="XRP">Ripple (XRP)</option>
+              <option value="SOL">Solana (SOL)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Amount (USD equivalent)</label>
+            <input class="form-input" type="number" id="deposit-amount" placeholder="e.g. 500" min="10" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Transaction Hash (optional)</label>
+            <input class="form-input" type="text" id="deposit-txhash" placeholder="Paste your tx hash for faster verification">
+          </div>
+          <button type="submit" class="btn btn-primary btn-full">Confirm Deposit</button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Deposit instructions when no coin selected -->
+    <div id="deposit-instructions" style="max-width:600px">
+      <div class="card">
+        <div style="font-size:0.9rem;color:var(--text2);line-height:1.8">
+          <p style="font-weight:700;color:var(--text);margin-bottom:0.75rem">How to Deposit</p>
+          <p>1. Select the cryptocurrency you want to deposit above.</p>
+          <p>2. Copy the wallet address shown.</p>
+          <p>3. Send your funds from your external wallet or exchange.</p>
+          <p>4. Enter the amount and optional tx hash, then confirm.</p>
+          <p>5. Your balance will update on NexaSpc shortly after.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     PAGE: WITHDRAW
+══════════════════════════════════════════ -->
+<div class="page" id="page-withdraw">
+  <div class="section">
+    <h2 class="section-title" style="margin-bottom:0.5rem">Withdraw Funds</h2>
+    <p style="color:var(--text2);font-size:0.9rem;margin-bottom:2rem">Select a source and paste your external wallet address</p>
+
+    <!-- Source selector -->
+    <div class="withdraw-sources" style="max-width:500px">
+      <div class="source-card selected" id="src-balance" onclick="selectWithdrawSource('balance')">
+        <div class="source-card-label">Total Balance</div>
+        <div class="source-card-val" id="wd-balance-val">$0.00</div>
+      </div>
+      <div class="source-card" id="src-profits" onclick="selectWithdrawSource('profits')">
+        <div class="source-card-label">Profits</div>
+        <div class="source-card-val" style="color:var(--accent3)" id="wd-profits-val">$0.00</div>
+      </div>
+    </div>
+
+    <div style="max-width:500px">
+      <form id="withdraw-form" class="card">
+        <div class="form-group">
+          <label class="form-label">Withdraw As</label>
+          <select class="form-input" id="wd-coin">
+            <option value="BTC">Bitcoin (BTC)</option>
+            <option value="ETH">Ethereum (ETH)</option>
+            <option value="USDT">Tether (USDT)</option>
+            <option value="XRP">Ripple (XRP)</option>
+            <option value="SOL">Solana (SOL)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Amount (USD)</label>
+          <input class="form-input" type="number" id="wd-amount" placeholder="Enter amount" min="10" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Your Wallet Address</label>
+          <input class="form-input" type="text" id="wd-wallet" placeholder="Paste your external wallet address" required>
+        </div>
+        <div style="background:rgba(0,212,255,0.06);border:1px solid rgba(0,212,255,0.15);border-radius:8px;padding:0.875rem;font-size:0.8rem;color:var(--text2);margin-bottom:1.25rem">
+          ℹ️ Withdrawals are processed within 24 hours. Network fees apply.
+        </div>
+        <button type="submit" class="btn btn-accent2 btn-full">Submit Withdrawal Request</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     PAGE: DASHBOARD
+══════════════════════════════════════════ -->
+<div class="page" id="page-dashboard">
+  <div class="dashboard">
+    <div class="dash-header">
+      <div>
+        <div class="dash-welcome">Welcome back, <span id="dash-username">—</span> 👋</div>
+        <div class="dash-sub">Here's your portfolio overview</div>
+      </div>
+      <div style="display:flex;gap:0.75rem">
+        <button class="btn btn-primary btn-sm" onclick="navigate('deposit')">+ Deposit</button>
+        <button class="btn btn-ghost btn-sm" onclick="navigate('withdraw')">Withdraw</button>
+      </div>
+    </div>
+
+    <!-- Stats Grid -->
+    <div class="stats-grid">
+      <div class="card">
+        <div class="card-header">Total Balance</div>
+        <div class="card-value accent" id="dash-balance">$0.00</div>
+        <div class="card-sub">Available balance</div>
+      </div>
+      <div class="card">
+        <div class="card-header">Total Deposits</div>
+        <div class="card-value" id="dash-deposits">$0.00</div>
+        <div class="card-sub">Cumulative deposited</div>
+      </div>
+      <div class="card">
+        <div class="card-header">Profits Earned</div>
+        <div class="card-value success" id="dash-profits">$0.00</div>
+        <div class="card-sub">+5% on deposits</div>
+      </div>
+      <div class="card">
+        <div class="card-header">Bonuses</div>
+        <div class="card-value warn" id="dash-bonuses">$0.00</div>
+        <div class="card-sub">Welcome &amp; referral rewards</div>
+      </div>
+    </div>
+
+    <!-- Quick Actions -->
+    <div class="card" style="margin-bottom:1.5rem">
+      <div class="card-header" style="margin-bottom:1rem">Quick Actions</div>
+      <div style="display:flex;gap:0.75rem;flex-wrap:wrap">
+        <button class="btn btn-primary btn-sm" onclick="navigate('deposit')">💳 Deposit Crypto</button>
+        <button class="btn btn-accent2 btn-sm" onclick="navigate('withdraw')">💸 Withdraw Funds</button>
+        <button class="btn btn-ghost btn-sm" onclick="navigate('spot')">📊 Trade Spot</button>
+        <button class="btn btn-ghost btn-sm" onclick="navigate('markets')">📈 View Markets</button>
+        <button class="btn btn-ghost btn-sm" onclick="navigate('transactions')">📋 Transaction History</button>
+      </div>
+    </div>
+
+    <!-- Recent Transactions preview -->
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.25rem">
+        <div class="card-header" style="margin:0">Recent Activity</div>
+        <button class="btn btn-ghost btn-sm" onclick="navigate('transactions')">View All</button>
+      </div>
+      <div id="dash-tx-preview" style="color:var(--text3);font-size:0.875rem;text-align:center;padding:1.5rem">
+        No activity yet. <a href="#" onclick="navigate('deposit')" style="color:var(--accent)">Make your first deposit →</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     PAGE: TRANSACTION HISTORY
+══════════════════════════════════════════ -->
+<div class="page" id="page-transactions">
+  <div class="section">
+    <div class="section-header">
+      <h2 class="section-title">Transaction History</h2>
+      <button class="btn btn-ghost btn-sm" onclick="loadTransactions()">↻ Refresh</button>
+    </div>
+    <div class="tx-list" id="tx-list">
+      <div style="text-align:center;color:var(--text3);padding:3rem">Loading…</div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     PAGE: LOGIN
+══════════════════════════════════════════ -->
+<div class="page" id="page-login">
+  <div class="form-page">
+    <div class="form-card">
+      <div style="text-align:center;margin-bottom:1.5rem">
+        <div class="logo-mark" style="margin:0 auto 0.75rem;width:44px;height:44px;font-size:16px">NX</div>
+        <div class="form-title">Welcome back</div>
+        <div class="form-subtitle">Sign in to your NexaSpc account</div>
+      </div>
+
+      <div class="alert alert-error" id="login-error" style="display:none"></div>
+
+      <form id="login-form">
+        <div class="form-group">
+          <label class="form-label">Email Address</label>
+          <input class="form-input" type="email" id="login-email" placeholder="you@example.com" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Password</label>
+          <input class="form-input" type="password" id="login-password" placeholder="••••••••" required>
+        </div>
+        <button type="submit" class="btn btn-primary btn-full" style="margin-top:0.5rem">Log In</button>
+      </form>
+
+      <div class="form-footer">
+        Don't have an account? <a href="#" onclick="navigate('signup')">Sign up free</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     PAGE: SIGN UP
+══════════════════════════════════════════ -->
+<div class="page" id="page-signup">
+  <div class="form-page">
+    <div class="form-card">
+      <div style="text-align:center;margin-bottom:1.5rem">
+        <div class="logo-mark" style="margin:0 auto 0.75rem;width:44px;height:44px;font-size:16px">NX</div>
+        <div class="form-title">Create Account</div>
+        <div class="form-subtitle">Join 350,000+ traders on NexaSpc</div>
+      </div>
+
+      <div class="alert alert-error" id="signup-error" style="display:none"></div>
+
+      <form id="signup-form">
+        <div class="form-group">
+          <label class="form-label">Username</label>
+          <input class="form-input" type="text" id="signup-username" placeholder="e.g. cryptotrader99" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Email Address</label>
+          <input class="form-input" type="email" id="signup-email" placeholder="you@example.com" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Password</label>
+          <input class="form-input" type="password" id="signup-password" placeholder="Min. 8 characters" minlength="8" required>
+        </div>
+        <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.2);border-radius:8px;padding:0.75rem;font-size:0.8rem;color:#6ee7b7;margin-bottom:1.25rem">
+          🎁 Get a $500 welcome bonus when you register!
+        </div>
+        <button type="submit" class="btn btn-primary btn-full">Create Free Account</button>
+      </form>
+
+      <div class="form-footer">
+        Already have an account? <a href="#" onclick="navigate('login')">Log in</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     PAGE: ABOUT
+══════════════════════════════════════════ -->
+<div class="page" id="page-about">
+  <div class="about-hero">
+    <div class="hero-badge">Est. 2021</div>
+    <h2 style="font-size:2.5rem;font-weight:800;letter-spacing:-1px;margin-bottom:1rem">
+      Built for the <span class="gradient-text">Next Generation</span> of Traders
+    </h2>
+    <p style="font-size:1rem;color:var(--text2);line-height:1.7;max-width:600px;margin:0 auto">
+      NexaSpc was founded with a single mission: to democratize access to digital asset markets.
+      We combine cutting-edge technology with institutional-grade infrastructure to serve everyone
+      from first-time investors to professional trading desks.
+    </p>
+  </div>
+
+  <div class="feature-grid">
+    <div class="feature-card">
+      <div class="feature-icon">🌍</div>
+      <div class="feature-title">Global Reach</div>
+      <div class="feature-desc">Serving users in 100+ countries with localized support and payment options for every region.</div>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🛡️</div>
+      <div class="feature-title">Regulated & Compliant</div>
+      <div class="feature-desc">Fully licensed and compliant with international financial regulations and AML/KYC standards.</div>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🤖</div>
+      <div class="feature-title">AI-Powered Insights</div>
+      <div class="feature-desc">Smart portfolio analysis and market signals powered by our proprietary machine learning models.</div>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">📞</div>
+      <div class="feature-title">24/7 Support</div>
+      <div class="feature-desc">Round-the-clock customer support via live chat, email, and our comprehensive help center.</div>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">💎</div>
+      <div class="feature-title">VIP Program</div>
+      <div class="feature-desc">Unlock exclusive benefits, lower fees, and dedicated account managers as you grow with us.</div>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🔗</div>
+      <div class="feature-title">API Access</div>
+      <div class="feature-desc">Full REST and WebSocket API for algorithmic traders and institutional clients.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     PAGE: CONTACT
+══════════════════════════════════════════ -->
+<div class="page" id="page-contact">
+  <div class="section">
+    <h2 class="section-title" style="margin-bottom:0.5rem">Get In Touch</h2>
+    <p style="color:var(--text2);font-size:0.9rem;margin-bottom:2.5rem">Our team is available 24/7 to assist you</p>
+
+    <div class="contact-wrap">
+      <div>
+        <div class="card" style="margin-bottom:1rem">
+          <div style="font-size:1.5rem;margin-bottom:0.5rem">💬</div>
+          <div style="font-weight:700;margin-bottom:0.25rem">Live Chat</div>
+          <div style="font-size:0.875rem;color:var(--text2)">Average response time: &lt; 2 minutes</div>
+          <button class="btn btn-primary btn-sm" style="margin-top:0.75rem" onclick="toast('Live chat coming soon!')">Start Chat</button>
+        </div>
+        <div class="card" style="margin-bottom:1rem">
+          <div style="font-size:1.5rem;margin-bottom:0.5rem">📧</div>
+          <div style="font-weight:700;margin-bottom:0.25rem">Email Support</div>
+          <div style="font-size:0.875rem;color:var(--accent)">support@nexaspc.io</div>
+        </div>
+        <div class="card">
+          <div style="font-size:1.5rem;margin-bottom:0.5rem">🐦</div>
+          <div style="font-weight:700;margin-bottom:0.25rem">Social Media</div>
+          <div style="font-size:0.875rem;color:var(--text2)">@NexaSpc on Twitter / Telegram</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div style="font-weight:700;font-size:1rem;margin-bottom:1.25rem">Send Us a Message</div>
+        <div class="form-group">
+          <label class="form-label">Your Name</label>
+          <input class="form-input" type="text" placeholder="John Doe">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Email</label>
+          <input class="form-input" type="email" placeholder="you@example.com">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Subject</label>
+          <select class="form-input">
+            <option>General Inquiry</option>
+            <option>Deposit Issue</option>
+            <option>Withdrawal Issue</option>
+            <option>Account Security</option>
+            <option>Technical Support</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Message</label>
+          <textarea class="form-input" rows="5" placeholder="Describe your issue or question…" style="resize:vertical"></textarea>
+        </div>
+        <button class="btn btn-primary btn-full" onclick="toast('Message sent! We\'ll reply within 24h.')">Send Message</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- <script src="js/app.js"></script> -->
+<script src="/NexaSpc/app.js"></script>
+</body>
+</html>

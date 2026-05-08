@@ -1,0 +1,4 @@
+node_modules
+.env
+
+//This ensures GitHub only sees your code, not your secrets or the heavy node_modules folder.

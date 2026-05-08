@@ -1,0 +1,20 @@
+{
+  "name": "nexaspc",
+  "version": "1.0.0",
+  "description": "NexaSpc Trading Platform",
+  "main": "NexaSpc/server.js",
+  "scripts": {
+    "start": "node NexaSpc/server.js",
+    "dev": "node NexaSpc/server.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "body-parser": "^1.20.5",
+    "cors": "^2.8.6",
+    "express": "^4.22.1",
+    "jsonwebtoken": "^9.0.3",
+    "mongodb": "^7.2.0",
+    "mongoose": "^9.6.1",
+    "path": "^0.12.7"
+  }
+}
