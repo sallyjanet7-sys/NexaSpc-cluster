@@ -1,5 +1,5 @@
 // ── NexaSpc App ──
-const API = 'http://localhost:10000/api';
+const API = '/api';
 
 let state = {
   user: null,
