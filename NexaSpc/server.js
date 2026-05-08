@@ -46,10 +46,13 @@ const cors = require('cors');
 const bodyParser = require('body-parser');
 const path = require('path');
 
+const dotenv = require('dotenv');
+dotenv.config();
+
 
 const app = express();
-const PORT = process.env.PORT || 3000;
-const JWT_SECRET = 'nexaspc_secret_2024';
+const PORT = process.env.PORT || 10000;
+const JWT_SECRET = process.env.JWT_SECRET;
 
 const mongoURI = process.env.MONGO_URI;
 
@@ -58,7 +61,7 @@ mongoose.connect(mongoURI)
     .catch(err => console.error('❌ MongoDB Connection Error:', err));
 
 // Instead of writing the whole schema here, you just "require" it
-const user = require('../models/user'); 
+const User = require('../models/User'); 
 // Now you can use "User" in your routes as normal
 
 app.use(cors());
