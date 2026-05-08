@@ -23,7 +23,7 @@ mongoose.connect(mongoURI)
     .catch(err => console.error('❌ MongoDB Connection Error:', err));
 
 // Instead of writing the whole schema here, you just "require" it
-const User = require('../models/User'); 
+const user = require('../models/user'); 
 // Now you can use "User" in your routes as normal
 
 app.use(cors());
