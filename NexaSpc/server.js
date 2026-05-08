@@ -1,41 +1,3 @@
-// <!DOCTYPE html>
-// <html lang="en">
-// <head>
-//     <meta charset="UTF-8">
-//     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-//     <link rel="stylesheet" href="css/style.css">
-//     <title>NexaSpc Broker</title>
-// </head>
-// <body>
-//     <nav class="nav-menu">
-//         <div class="nav-container">
-//             <header>
-//                 <img src="assets/logo.png" alt="NexaSpace Logo" class="logo">
-//                 <h1 class="nexahead">NexaSpace</h1>
-//             </header>
-//         </div>
-//         <ul class="nav-links">
-//             <li class="nav-link"><a href="#">Home</a></li>
-//             <li class="nav-link"><a href="#">Market</a></li>
-//             <li class="nav-link"><a href="#">Spot</a></li>
-//             <li class="nav-link"><a href="#">Margin</a></li>
-//             <li class="nav-link"><a href="#">Options</a></li>
-//             <li class="nav-link"><a href="#"></a></li>
-//             <li class="nav-link"><a href="#">Login</a></li>
-//             <li class="nav-link"><a href="#">Register</a></li>
-//         </ul>
-//     </nav>
-
-//     <main>
-//         <section class="nexa-view">
-//             <h2 class="section-title">The Worlds Leading Digital Assest Trading Platform, NexaSpace Integrated ecosystem</h2>
-//             <p class="crypto-description">Providing secure and trusted digital assest trading and assest management services to over 100k+ users worldwide.</p>
-//         </section>
-//     </main>
-
-//     <script src="script.js"></script> 
-// </body>
-// </html>
 require('dotenv').config();
 
 const express = require('express');
@@ -66,7 +28,7 @@ const User = require('../models/User');
 
 app.use(cors());
 app.use(bodyParser.json());
-app.use(express.static(path.join(__dirname, '../public')));
+app.use(express.static(path.join(__dirname, '..', 'public')));
 
 // In-memory data store (replace with a real DB in production)
 const users = {};
@@ -252,8 +214,12 @@ app.get('/api/markets', (req, res) => {
 });
 
 // Serve all pages
+// app.get('*', (req, res) => {
+//   res.sendFile(path.join(__dirname, '../public/index.html'));
+// });
+
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, '../public/index.html'));
+  res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
 });
 
 app.listen(PORT, () => {
