@@ -181,7 +181,10 @@ async function loadMarkets() {
     const markets = await api('/markets');
     state.markets = markets;
     renderMarketsTable(markets);
-  } catch {}
+    alert("Market function triggered!");
+  } catch {err} {
+    console.error("Failed to load markets:", err);
+  }
 }
 
 function renderMarketsTable(markets) {
