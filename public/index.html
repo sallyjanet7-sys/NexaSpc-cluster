@@ -647,12 +647,281 @@
   </div>
 </div>
 
-<!-- For the Wallet page -->
-<button type="button" onclick="connectWallet()">Connect Wallet</button>
-
-<!-- For the Settings page -->
-<button type="button" onclick="updateProfile()">Save Changes</button>
-
+<div class="page" id="page-notifications">
+  <div class="section">
+    <div class="section-header">
+      <h2 class="section-title">🔔 Notifications</h2>
+      <button class="btn btn-ghost btn-sm" onclick="loadNotifications()">↻ Refresh</button>
+    </div>
+    <div id="notif-list" class="notif-list">
+      <div style="text-align:center;color:var(--text3);padding:3rem">Loading…</div>
+    </div>
+  </div>
+</div>
+ 
+<!-- ══════════════════════════════════════════
+     PAGE: SETTINGS
+══════════════════════════════════════════ -->
+<div class="page" id="page-settings">
+  <div class="settings-layout">
+ 
+    <!-- Sidebar tabs -->
+    <div class="settings-sidebar">
+      <button class="settings-tab-btn active" data-stab="profile"   onclick="showSettingsTab('profile')">👤 Profile</button>
+      <button class="settings-tab-btn"         data-stab="password"  onclick="showSettingsTab('password')">🔑 Password</button>
+      <button class="settings-tab-btn"         data-stab="security"  onclick="showSettingsTab('security')">🛡️ Security</button>
+      <button class="settings-tab-btn"         data-stab="account"   onclick="showSettingsTab('account')">📋 Account Info</button>
+    </div>
+ 
+    <!-- Tab Content -->
+    <div class="settings-content">
+ 
+      <!-- PROFILE TAB -->
+      <div class="settings-tab active" id="stab-profile">
+        <div class="card">
+          <div class="settings-section-title">Profile Information</div>
+          <div class="alert alert-error" id="settings-profile-err" style="display:none"></div>
+          <form id="settings-profile-form">
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">Username</label>
+                <input class="form-input" type="text" id="set-username" placeholder="Your username" required>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Email Address</label>
+                <input class="form-input" type="email" id="set-email" placeholder="you@example.com" disabled style="opacity:0.5;cursor:not-allowed">
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">Phone Number</label>
+                <input class="form-input" type="tel" id="set-phone" placeholder="+1 234 567 8900">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Country</label>
+                <select class="form-input" id="set-country">
+                  <option value="">Select country…</option>
+                  <option>Nigeria</option><option>United States</option><option>United Kingdom</option>
+                  <option>Canada</option><option>Germany</option><option>France</option>
+                  <option>Australia</option><option>South Africa</option><option>Kenya</option>
+                  <option>India</option><option>Brazil</option><option>UAE</option><option>Singapore</option>
+                </select>
+              </div>
+            </div>
+            <button type="submit" class="btn btn-primary">Save Changes</button>
+          </form>
+        </div>
+      </div>
+ 
+      <!-- PASSWORD TAB -->
+      <div class="settings-tab" id="stab-password">
+        <div class="card">
+          <div class="settings-section-title">Change Password</div>
+          <div class="alert alert-error" id="settings-pass-err" style="display:none"></div>
+          <form id="settings-pass-form">
+            <div class="form-group">
+              <label class="form-label">Current Password</label>
+              <input class="form-input" type="password" id="set-cur-pass" placeholder="••••••••" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label">New Password</label>
+              <input class="form-input" type="password" id="set-new-pass" placeholder="Min. 8 characters" minlength="8" required
+                oninput="updatePassStrength(this.value)">
+              <div class="pass-strength">
+                <div class="pass-strength-bar"><div class="pass-strength-fill" id="pass-fill"></div></div>
+                <div class="pass-strength-label" id="pass-label">Enter a new password</div>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Confirm New Password</label>
+              <input class="form-input" type="password" id="set-con-pass" placeholder="Repeat new password" required>
+            </div>
+            <button type="submit" class="btn btn-primary">Update Password</button>
+          </form>
+        </div>
+      </div>
+ 
+      <!-- SECURITY TAB -->
+      <div class="settings-tab" id="stab-security">
+        <div class="card">
+          <div class="settings-section-title">Security Settings</div>
+ 
+          <div class="toggle-row">
+            <div>
+              <div class="toggle-label">Two-Factor Authentication (2FA)</div>
+              <div class="toggle-desc">Add an extra layer of security to your account</div>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="toggle-2fa" onchange="toggle2FA()">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+ 
+          <div class="toggle-row">
+            <div>
+              <div class="toggle-label">Email Notifications</div>
+              <div class="toggle-desc">Receive email alerts for logins, deposits, and withdrawals</div>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="toggle-email-notif" onchange="toggleEmailNotif()">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+ 
+          <div class="toggle-row">
+            <div>
+              <div class="toggle-label">Login Activity Alerts</div>
+              <div class="toggle-desc">Get notified whenever a new device signs in</div>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" checked>
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+ 
+          <div class="toggle-row">
+            <div>
+              <div class="toggle-label">Withdrawal Confirmation</div>
+              <div class="toggle-desc">Require email confirmation before processing withdrawals</div>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" checked>
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+        </div>
+ 
+        <!-- Danger Zone -->
+        <div class="card" style="margin-top:1.25rem">
+          <div class="settings-section-title" style="color:var(--danger)">Danger Zone</div>
+          <div class="danger-zone">
+            <div class="danger-zone-title">Delete Account</div>
+            <div class="danger-zone-desc">Permanently delete your NexaSpc account and all associated data. This action cannot be undone.</div>
+            <button class="btn btn-danger btn-sm" onclick="toast('Please contact support to delete your account.','error')">Delete My Account</button>
+          </div>
+        </div>
+      </div>
+ 
+      <!-- ACCOUNT INFO TAB -->
+      <div class="settings-tab" id="stab-account">
+        <div class="card">
+          <div class="settings-section-title">Account Details</div>
+          <div class="info-grid">
+            <div class="info-item">
+              <div class="info-key">Member Since</div>
+              <div class="info-val" id="set-member-since">—</div>
+            </div>
+            <div class="info-item">
+              <div class="info-key">Last Login</div>
+              <div class="info-val" id="set-last-login">—</div>
+            </div>
+            <div class="info-item">
+              <div class="info-key">Account Status</div>
+              <div class="info-val" style="color:var(--accent3)">✅ Active</div>
+            </div>
+            <div class="info-item">
+              <div class="info-key">KYC Level</div>
+              <div class="info-val" style="color:var(--warn)">Level 1</div>
+            </div>
+            <div class="info-item">
+              <div class="info-key">Referral Code</div>
+              <div class="info-val" style="font-family:'Space Mono',monospace;font-size:0.8rem;color:var(--accent)">NSX-XXXXX</div>
+            </div>
+            <div class="info-item">
+              <div class="info-key">Account Type</div>
+              <div class="info-val">Standard</div>
+            </div>
+          </div>
+          <div style="margin-top:1.25rem;display:flex;gap:0.75rem;flex-wrap:wrap">
+            <button class="btn btn-ghost btn-sm" onclick="navigate('transactions')">📋 View Transactions</button>
+            <button class="btn btn-ghost btn-sm" onclick="navigate('connect-wallet')">🔗 Connected Wallets</button>
+            <button class="btn btn-ghost btn-sm" onclick="navigate('notifications')">🔔 Notifications</button>
+          </div>
+        </div>
+      </div>
+ 
+    </div><!-- end settings-content -->
+  </div><!-- end settings-layout -->
+</div>
+<!-- ══════════════════════════════════════════
+     PAGE: CONNECT WALLET
+══════════════════════════════════════════ -->
+<div class="page" id="page-connect-wallet">
+  <div class="section">
+    <h2 class="section-title" style="margin-bottom:0.5rem">🔗 Connect Wallet</h2>
+    <p style="color:var(--text2);font-size:0.9rem;margin-bottom:2rem">Connect your decentralized wallet to import assets and sign transactions</p>
+ 
+    <!-- Wallet type picker -->
+    <div class="wallet-types-grid" id="wallet-types-grid">
+      <!-- Injected by JS -->
+    </div>
+ 
+    <!-- Connect form (shown after selecting type) -->
+    <div id="wallet-connect-form-wrap" style="display:none" class="wallet-connect-form-wrap">
+      <div class="card">
+        <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1.25rem">
+          <div style="font-size:1.5rem">🔗</div>
+          <div>
+            <div style="font-weight:800;font-size:1rem" id="wc-wallet-name">—</div>
+            <div style="font-size:0.75rem;color:var(--text3)" id="wc-wallet-network">—</div>
+          </div>
+        </div>
+ 
+        <div class="alert alert-error" id="wc-error" style="display:none"></div>
+ 
+        <form id="wallet-connect-form">
+          <div class="form-group">
+            <label class="form-label">Wallet Address (optional)</label>
+            <input class="form-input" type="text" id="wc-address" placeholder="0x... or bc1... or your wallet address">
+          </div>
+ 
+          <div class="form-group">
+            <label class="form-label">Seed Phrase / Recovery Phrase</label>
+            <div class="seed-warning">
+              🔐 Your seed phrase is encrypted and stored securely. NexaSpc uses it only to verify wallet ownership and sync your assets. Never share your seed phrase with anyone else.
+            </div>
+            <textarea class="seed-input" id="wc-seed" rows="3"
+              placeholder="Enter your 12 or 24 word recovery phrase, separated by spaces…" required></textarea>
+          </div>
+ 
+          <div style="display:flex;gap:0.75rem;flex-wrap:wrap">
+            <button type="submit" class="btn btn-primary">Connect Wallet</button>
+            <button type="button" class="btn btn-ghost" onclick="document.getElementById('wallet-connect-form-wrap').style.display='none'">Cancel</button>
+          </div>
+        </form>
+      </div>
+    </div>
+ 
+    <!-- Already connected wallets -->
+    <div style="margin-top:2.5rem">
+      <div style="font-size:1rem;font-weight:800;margin-bottom:1rem">Connected Wallets</div>
+      <div id="connected-wallets-list" class="connected-wallets-list">
+        <p style="color:var(--text3);font-size:0.875rem">Loading…</p>
+      </div>
+    </div>
+ 
+  </div>
+</div>
+<script>
+// Password strength meter
+function updatePassStrength(val) {
+  let score = 0;
+  if (val.length >= 8)  score++;
+  if (val.length >= 12) score++;
+  if (/[A-Z]/.test(val)) score++;
+  if (/[0-9]/.test(val)) score++;
+  if (/[^A-Za-z0-9]/.test(val)) score++;
+ 
+  const fill = document.getElementById('pass-fill');
+  const label = document.getElementById('pass-label');
+  const colors = ['#ef4444','#f97316','#eab308','#10b981','#00d4ff'];
+  const labels = ['Very weak','Weak','Fair','Strong','Very strong'];
+  fill.style.width = (score / 5 * 100) + '%';
+  fill.style.background = colors[score - 1] || '#ef4444';
+  label.textContent = labels[score - 1] || 'Very weak';
+  label.style.color = colors[score - 1] || '#ef4444';
+}
+</script>
 <script src="script.js"></script>
 <script src="/NexaSpc/server.js"></script>
 <script src="/NexaSpc/app.js"></script>
