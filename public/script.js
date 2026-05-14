@@ -453,6 +453,21 @@ async function registerUser(email, password) {
   }
 }
 
+async function handleSignup() {
+  const email = document.getElementById('email-input').value; // Ensure this ID matches your HTML
+  const password = document.getElementById('password-input').value;
+
+  try {
+    const data = await api('/auth/signup', { // This hits your server logic
+      method: 'POST',
+      body: JSON.stringify({ email, password })
+    });
+    alert('Check your email for a notification!');
+  } catch (err) {
+    console.error('Signup error:', err.message);
+  }
+}
+
 async function getAdminActivity() {
   const token = localStorage.getItem('adminToken'); // You must be logged in as admin
   const res = await fetch('/api/admin/logs', {
