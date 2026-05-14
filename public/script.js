@@ -101,6 +101,8 @@ function renderNav() {
           <div class="dropdown-item danger" onclick="logout()">🚪 Log Out</div>
         </div>
       </div>`;
+
+
     // Poll notifications
     fetchNotifications();
   } else {
@@ -433,6 +435,31 @@ async function loadNotifications() {
     const badge = document.querySelector('.notif-badge');
     if (badge) badge.style.display = 'none';
   } catch {}
+}
+
+//Email Notifications 
+async function registerUser(email, password) {
+  const response = await fetch('/api/auth/signup', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password })
+  });
+  
+  const data = await response.json();
+  if (response.ok) {
+    // Save the token so Middleware lets you in later
+    localStorage.setItem('token', data.token); 
+    alert("Signup successful! Notification sent.");
+  }
+}
+
+async function getAdminActivity() {
+  const token = localStorage.getItem('adminToken'); // You must be logged in as admin
+  const res = await fetch('/api/admin/logs', {
+    headers: { 'Authorization': `Bearer ${token}` }
+  });
+  const logs = await res.json();
+  console.log("Admin Activity:", logs); // This is where you'll see the backend info
 }
 
 // ══════════════════════════════════════════
