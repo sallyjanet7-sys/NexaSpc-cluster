@@ -503,38 +503,141 @@
      PAGE: SIGN UP
 ══════════════════════════════════════════ -->
 <div class="page" id="page-signup">
-  <div class="form-page">
-    <div class="form-card">
-      <div style="text-align:center;margin-bottom:1.5rem">
+  <div class="form-page" style="align-items:flex-start;padding-top:3rem">
+    <div class="form-card" style="max-width:480px">
+ 
+      <!-- Logo -->
+      <div style="text-align:center;margin-bottom:1.75rem">
         <div class="logo-mark" style="margin:0 auto 0.75rem;width:44px;height:44px;font-size:16px">NX</div>
         <div class="form-title">Create Account</div>
         <div class="form-subtitle">Join 350,000+ traders on NexaSpc</div>
       </div>
-
-      <div class="alert alert-error" id="signup-error" style="display:none"></div>
-
-      <form id="signup-form">
-        <div class="form-group">
-          <label class="form-label">Username</label>
-          <input class="form-input" type="text" id="signup-username" placeholder="e.g. cryptotrader99" required>
+ 
+      <!-- Step progress bar -->
+      <div class="signup-progress">
+        <div class="step-item">
+          <div class="step-dot active" id="step-dot-1">1</div>
+          <div class="step-label">Details</div>
         </div>
-        <div class="form-group">
-          <label class="form-label">Email Address</label>
-          <input class="form-input" type="email" id="signup-email" placeholder="you@example.com" required>
+        <div class="step-line"></div>
+        <div class="step-item">
+          <div class="step-dot pending" id="step-dot-2">2</div>
+          <div class="step-label">Verify</div>
         </div>
-        <div class="form-group">
-          <label class="form-label">Password</label>
-          <input class="form-input" type="password" id="signup-password" placeholder="Min. 8 characters" minlength="8" required>
+        <div class="step-line"></div>
+        <div class="step-item">
+          <div class="step-dot pending" id="step-dot-3">3</div>
+          <div class="step-label">Done</div>
         </div>
-        <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.2);border-radius:8px;padding:0.75rem;font-size:0.8rem;color:#6ee7b7;margin-bottom:1.25rem">
-          🎁 Get a $500 welcome bonus when you register!
-        </div>
-        <button type="submit" class="btn btn-primary btn-full">Create Free Account</button>
-      </form>
-
-      <div class="form-footer">
-        Already have an account? <a href="login" onclick="navigate('login')">Log in</a>
       </div>
+ 
+      <!-- ── STEP 1: Account details ── -->
+      <div class="signup-step active" id="signup-step-1">
+        <div class="alert alert-error" id="signup-error" style="display:none"></div>
+        <form id="signup-form">
+          <div class="form-group">
+            <label class="form-label">Username</label>
+            <input class="form-input" type="text" id="signup-username" placeholder="e.g. cryptotrader99" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Email Address</label>
+            <input class="form-input" type="email" id="signup-email" placeholder="you@example.com" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Phone Number</label>
+            <input class="form-input" type="tel" id="signup-phone" placeholder="+234 801 234 5678" required>
+            <div style="font-size:0.75rem;color:var(--text3);margin-top:4px">Include country code. We'll send an SMS verification code.</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Password</label>
+            <input class="form-input" type="password" id="signup-password" placeholder="Min. 8 characters" minlength="8" required
+              oninput="updatePassStrength(this.value)">
+            <div class="pass-strength">
+              <div class="pass-strength-bar"><div class="pass-strength-fill" id="pass-fill"></div></div>
+              <div class="pass-strength-label" id="pass-label">Enter a password</div>
+            </div>
+          </div>
+          <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.2);border-radius:8px;padding:0.75rem 1rem;font-size:0.8rem;color:#6ee7b7;margin-bottom:1.25rem">
+            🎁 Get a $500 welcome bonus when you verify your account!
+          </div>
+          <button type="submit" id="signup-btn" class="btn btn-primary btn-full">Continue →</button>
+        </form>
+        <div class="form-footer">Already have an account? <a href="#" onclick="navigate('login')">Log in</a></div>
+      </div>
+ 
+      <!-- ── STEP 2: OTP verification ── -->
+      <div class="signup-step" id="signup-step-2">
+        <div style="margin-bottom:1.5rem">
+          <p style="font-size:0.9rem;color:var(--text2);line-height:1.6">
+            We've sent verification codes to your email and phone number. Enter both codes below to verify your identity.
+          </p>
+        </div>
+ 
+        <!-- Email OTP -->
+        <div class="otp-card" id="email-otp-card">
+          <div class="otp-card-header">
+            <span class="otp-card-icon">📧</span>
+            <div>
+              <div class="otp-card-title">Email Verification</div>
+              <div class="otp-card-sub" id="otp-email-display">—</div>
+            </div>
+          </div>
+          <div class="alert alert-error" id="email-otp-error" style="display:none"></div>
+          <div id="email-otp-status" style="display:none;font-size:0.85rem;margin-bottom:0.75rem"></div>
+          <form id="email-otp-form" style="display:flex;gap:0.75rem;align-items:flex-end">
+            <div style="flex:1">
+              <label class="form-label">6-Digit Code</label>
+              <input class="form-input otp-input" type="text" id="email-otp-input"
+                placeholder="● ● ● ● ● ●" maxlength="6" pattern="[0-9]{6}"
+                inputmode="numeric" autocomplete="one-time-code">
+            </div>
+            <button type="submit" id="verify-email-btn" class="btn btn-primary" style="margin-bottom:0">Verify</button>
+          </form>
+          <button id="resend-email-otp" class="resend-btn" onclick="resendOtp('email')">Resend code</button>
+        </div>
+ 
+        <!-- Phone OTP -->
+        <div class="otp-card" id="phone-otp-card" style="margin-top:1rem">
+          <div class="otp-card-header">
+            <span class="otp-card-icon">📱</span>
+            <div>
+              <div class="otp-card-title">Phone Verification</div>
+              <div class="otp-card-sub" id="otp-phone-display">—</div>
+            </div>
+          </div>
+          <div class="alert alert-error" id="phone-otp-error" style="display:none"></div>
+          <div id="phone-otp-status" style="display:none;font-size:0.85rem;margin-bottom:0.75rem"></div>
+          <form id="phone-otp-form" style="display:flex;gap:0.75rem;align-items:flex-end">
+            <div style="flex:1">
+              <label class="form-label">6-Digit Code</label>
+              <input class="form-input otp-input" type="text" id="phone-otp-input"
+                placeholder="● ● ● ● ● ●" maxlength="6" pattern="[0-9]{6}"
+                inputmode="numeric" autocomplete="one-time-code">
+            </div>
+            <button type="submit" id="verify-phone-btn" class="btn btn-primary" style="margin-bottom:0">Verify</button>
+          </form>
+          <button id="resend-phone-otp" class="resend-btn" onclick="resendOtp('phone')">Resend code</button>
+        </div>
+      </div>
+ 
+      <!-- ── STEP 3: All verified ── -->
+      <div class="signup-step" id="signup-step-3">
+        <div style="text-align:center;padding:1rem 0">
+          <div style="font-size:4rem;margin-bottom:1rem">🎉</div>
+          <h3 style="font-size:1.25rem;font-weight:800;margin-bottom:0.5rem">Identity Verified!</h3>
+          <p style="font-size:0.875rem;color:var(--text2);margin-bottom:0.5rem">Both your email and phone number have been verified.</p>
+          <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.25);border-radius:10px;padding:1rem;margin:1.25rem 0;text-align:left;font-size:0.85rem;line-height:2">
+            <div>✅ Email address verified</div>
+            <div>✅ Phone number verified</div>
+            <div>🎁 $500 welcome bonus ready</div>
+          </div>
+          <div class="alert alert-error" id="complete-error" style="display:none"></div>
+          <button id="complete-signup-btn" class="btn btn-primary btn-full" onclick="handleCompleteSignup()">
+            Launch My Account 🚀
+          </button>
+        </div>
+      </div>
+ 
     </div>
   </div>
 </div>
@@ -646,6 +749,10 @@
     </div>
   </div>
 </div>
+
+<!-- ══════════════════════════════════════════
+     PAGE: Notifications
+══════════════════════════════════════════ -->
 
 <div class="page" id="page-notifications">
   <div class="section">

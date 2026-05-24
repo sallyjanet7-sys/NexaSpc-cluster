@@ -135,38 +135,192 @@ function toast(msg, type = 'success') {
 // ── AUTH ──
 async function handleLogin(e) {
   e.preventDefault();
-  const email = document.getElementById('login-email').value;
+  const email    = document.getElementById('login-email').value;
   const password = document.getElementById('login-password').value;
-  const errEl = document.getElementById('login-error');
+  const errEl    = document.getElementById('login-error');
+  const btn      = document.getElementById('login-btn');
   errEl.style.display = 'none';
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Signing in…';
   try {
     const data = await api('/login', { method: 'POST', body: JSON.stringify({ email, password }) });
     saveAuth(data.token, data.user);
     renderNav();
-    toast(`Welcome back, ${data.user.username}!`);
+    toast(`Welcome back, ${data.user.username}! 👋`);
     navigate('dashboard');
   } catch (err) {
     errEl.textContent = err.message;
     errEl.style.display = 'block';
+    btn.disabled = false;
+    btn.innerHTML = 'Log In';
   }
 }
 
+// ── MULTI-STEP SIGNUP ──
+// state.signup tracks the pending registration
+state.signup = { email: '', step: 1, emailVerified: false, phoneVerified: false };
+ 
+function showSignupStep(step) {
+  document.querySelectorAll('.signup-step').forEach(el => el.classList.remove('active'));
+  document.getElementById(`signup-step-${step}`)?.classList.add('active');
+ 
+  // Update progress bar
+  const steps = document.querySelectorAll('.step-dot');
+  steps.forEach((dot, i) => {
+    dot.classList.toggle('done',    i + 1 < step);
+    dot.classList.toggle('active',  i + 1 === step);
+    dot.classList.toggle('pending', i + 1 > step);
+  });
+  state.signup.step = step;
+}
+ 
+// STEP 1 — submit registration details
 async function handleSignup(e) {
   e.preventDefault();
-  const username = document.getElementById('signup-username').value;
-  const email = document.getElementById('signup-email').value;
+  const username = document.getElementById('signup-username').value.trim();
+  const email    = document.getElementById('signup-email').value.trim();
   const password = document.getElementById('signup-password').value;
-  const errEl = document.getElementById('signup-error');
+  const phone    = document.getElementById('signup-phone').value.trim();
+  const errEl    = document.getElementById('signup-error');
+  const btn      = document.getElementById('signup-btn');
   errEl.style.display = 'none';
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Sending codes…';
+ 
   try {
-    const data = await api('/register', { method: 'POST', body: JSON.stringify({ username, email, password }) });
+    const data = await api('/auth/initiate', {
+      method: 'POST',
+      body: JSON.stringify({ username, email, password, phone })
+    });
+    state.signup.email         = email;
+    state.signup.emailVerified = false;
+    state.signup.phoneVerified = false;
+ 
+    // Show masked phone in the verify screen
+    document.getElementById('otp-email-display').textContent = email;
+    document.getElementById('otp-phone-display').textContent = data.phone || phone;
+ 
+    showSignupStep(2);
+    toast('Verification codes sent! Check your email and phone.');
+  } catch (err) {
+    errEl.textContent = err.message;
+    errEl.style.display = 'block';
+    btn.disabled = false;
+    btn.innerHTML = 'Create Account';
+  }
+}
+ 
+// STEP 2 — verify email OTP
+async function handleVerifyEmail(e) {
+  e.preventDefault();
+  const otp   = document.getElementById('email-otp-input').value.trim();
+  const errEl = document.getElementById('email-otp-error');
+  const btn   = document.getElementById('verify-email-btn');
+  errEl.style.display = 'none';
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Verifying…';
+ 
+  try {
+    await api('/auth/verify-email', {
+      method: 'POST',
+      body: JSON.stringify({ email: state.signup.email, otp })
+    });
+    state.signup.emailVerified = true;
+    markVerified('email-otp-status', '✅ Email verified!');
+    toast('Email address verified!');
+    // If phone also done, proceed
+    if (state.signup.phoneVerified) showSignupStep(3);
+    else { btn.disabled = false; btn.innerHTML = 'Verify Email'; }
+  } catch (err) {
+    errEl.textContent = err.message;
+    errEl.style.display = 'block';
+    btn.disabled = false;
+    btn.innerHTML = 'Verify Email';
+  }
+}
+ 
+// STEP 2 — verify phone OTP
+async function handleVerifyPhone(e) {
+  e.preventDefault();
+  const otp   = document.getElementById('phone-otp-input').value.trim();
+  const errEl = document.getElementById('phone-otp-error');
+  const btn   = document.getElementById('verify-phone-btn');
+  errEl.style.display = 'none';
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Verifying…';
+ 
+  try {
+    await api('/auth/verify-phone', {
+      method: 'POST',
+      body: JSON.stringify({ email: state.signup.email, otp })
+    });
+    state.signup.phoneVerified = true;
+    markVerified('phone-otp-status', '✅ Phone verified!');
+    toast('Phone number verified!');
+    if (state.signup.emailVerified) showSignupStep(3);
+    else { btn.disabled = false; btn.innerHTML = 'Verify Phone'; }
+  } catch (err) {
+    errEl.textContent = err.message;
+    errEl.style.display = 'block';
+    btn.disabled = false;
+    btn.innerHTML = 'Verify Phone';
+  }
+}
+ 
+function markVerified(id, msg) {
+  const el = document.getElementById(id);
+  if (el) { el.textContent = msg; el.style.color = 'var(--accent3)'; el.style.display = 'block'; }
+}
+ 
+// STEP 3 — complete registration
+async function handleCompleteSignup() {
+  const btn   = document.getElementById('complete-signup-btn');
+  const errEl = document.getElementById('complete-error');
+  errEl.style.display = 'none';
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Creating account…';
+ 
+  try {
+    const data = await api('/auth/complete', {
+      method: 'POST',
+      body: JSON.stringify({ email: state.signup.email })
+    });
     saveAuth(data.token, data.user);
     renderNav();
-    toast(`Welcome to NexaSpc, ${data.user.username}! 🎉`);
+    toast(`🎉 Welcome to NexaSpc, ${data.user.username}! Your account is verified.`);
     navigate('dashboard');
   } catch (err) {
     errEl.textContent = err.message;
     errEl.style.display = 'block';
+    btn.disabled = false;
+    btn.innerHTML = 'Complete Sign Up';
+  }
+}
+ 
+// Resend OTP helpers
+async function resendOtp(type) {
+  const btnId = type === 'email' ? 'resend-email-otp' : 'resend-phone-otp';
+  const btn   = document.getElementById(btnId);
+  if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+  try {
+    await api('/auth/resend-otp', {
+      method: 'POST',
+      body: JSON.stringify({ email: state.signup.email, type })
+    });
+    toast(`New ${type} verification code sent!`);
+    // Cooldown 30s
+    let secs = 30;
+    const interval = setInterval(() => {
+      if (btn) btn.textContent = `Resend in ${secs}s`;
+      secs--;
+      if (secs < 0) {
+        clearInterval(interval);
+        if (btn) { btn.disabled = false; btn.textContent = `Resend code`; }
+      }
+    }, 1000);
+  } catch (err) {
+    toast(err.message, 'error');
+    if (btn) { btn.disabled = false; btn.textContent = 'Resend code'; }
   }
 }
 
@@ -437,45 +591,45 @@ async function loadNotifications() {
   } catch {}
 }
 
-//Email Notifications 
-async function registerUser(email, password) {
-  const response = await fetch('/api/auth/signup', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password })
-  });
+// //Email Notifications 
+// async function registerUser(email, password) {
+//   const response = await fetch('/api/auth/signup', {
+//     method: 'POST',
+//     headers: { 'Content-Type': 'application/json' },
+//     body: JSON.stringify({ email, password })
+//   });
   
-  const data = await response.json();
-  if (response.ok) {
-    // Save the token so Middleware lets you in later
-    localStorage.setItem('token', data.token); 
-    alert("Signup successful! Notification sent.");
-  }
-}
+//   const data = await response.json();
+//   if (response.ok) {
+//     // Save the token so Middleware lets you in later
+//     localStorage.setItem('token', data.token); 
+//     alert("Signup successful! Notification sent.");
+//   }
+// }
 
-async function handleSignup() {
-  const email = document.getElementById('email-input').value; // Ensure this ID matches your HTML
-  const password = document.getElementById('password-input').value;
+// async function handleSignup() {
+//   const email = document.getElementById('email-input').value; // Ensure this ID matches your HTML
+//   const password = document.getElementById('password-input').value;
 
-  try {
-    const data = await api('/auth/signup', { // This hits your server logic
-      method: 'POST',
-      body: JSON.stringify({ email, password })
-    });
-    alert('Check your email for a notification!');
-  } catch (err) {
-    console.error('Signup error:', err.message);
-  }
-}
+//   try {
+//     const data = await api('/auth/signup', { //  This hits your server logic
+//       method: 'POST',
+//       body: JSON.stringify({ email, password })
+//     });
+//     alert('Check your email for a notification!');
+//   } catch (err) {
+//     console.error('Signup error:', err.message);
+//   }
+// }
 
-async function getAdminActivity() {
-  const token = localStorage.getItem('adminToken'); // You must be logged in as admin
-  const res = await fetch('/api/admin/logs', {
-    headers: { 'Authorization': `Bearer ${token}` }
-  });
-  const logs = await res.json();
-  console.log("Admin Activity:", logs); // This is where you'll see the backend info
-}
+// async function getAdminActivity() {
+//   const token = localStorage.getItem('adminToken'); // You must be logged in as admin
+//   const res = await fetch('/api/admin/logs', {
+//     headers: { 'Authorization': `Bearer ${token}` }
+//   });
+//   const logs = await res.json();
+//   console.log("Admin Activity:", logs); // This is where you'll see the backend info
+// }
 
 // ══════════════════════════════════════════
 // SETTINGS
