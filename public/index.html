@@ -566,12 +566,20 @@
       </div>
  
       <!-- ── STEP 2: OTP verification ── -->
+       
       <div class="signup-step" id="signup-step-2">
-        <div style="margin-bottom:1.5rem">
+        <!-- <div style="margin-bottom:1.5rem">
           <p style="font-size:0.9rem;color:var(--text2);line-height:1.6">
             We've sent verification codes to your email and phone number. Enter both codes below to verify your identity.
-          </p>
+          </p> -->
+        <div id="otp-dev-hint" class="alert alert-info" style="display:none; background:rgba(0,212,255,0.1); color:#00d4ff; border:1px solid #00d4ff; margin-bottom:1rem; padding:0.75rem; border-radius:8px; font-family:monospace;">
         </div>
+        <div style="margin-bottom:1.5rem">
+          <p id="otp-channel-desc" style="font-size:0.9rem;color:var(--text2);line-height:1.6">
+          Enter the 6-digit verification code sent to your credentials to complete registration.
+         </p>
+        </div>
+      </div>
  
         <!-- Email OTP -->
         <div class="otp-card" id="email-otp-card">
