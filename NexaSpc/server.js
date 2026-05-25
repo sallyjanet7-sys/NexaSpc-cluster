@@ -217,6 +217,16 @@ app.post('/api/auth/initiate', async (req, res) => {
   console.log(`[ADMIN LOG] ${action}:`, data.message);
 }
 
+// 1. Function to generate a secure, random 6-digit number string
+function genOtp() {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+// 2. Function to calculate when the OTP should expire (15 minutes from now)
+function otpExpiry(minutes) {
+  return new Date(Date.now() + minutes * 60 * 1000).toISOString();
+}
+
     // In dev mode include the OTP in the response so it works without real SMTP/SMS
     const DEV_MODE = process.env.NODE_ENV !== 'production';
     const responsePayload = {
