@@ -84,18 +84,18 @@ async function sendSms(phone, message) {
 
 transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST || '74.125.142.108',
-  port: parseInt(process.env.SMTP_PORT || '587'),
-  secure: false, // true for 465, false for other ports
+  port: parseInt(process.env.SMTP_PORT || '465'),
+  secure: true, // true for 465, false for other ports
   auth: { 
     user: process.env.SMTP_USER, 
     pass: process.env.SMTP_PASS 
   },
-  family:4
+  family:4,
   // Add this block to fix the Render network bug:
   // tls: {
   //   rejectUnauthorized: false
   // },
-  // dnsTimeout: 10000 // Forces a cleaner lookup over standard network interfaces
+  dnsTimeout: 10000 // Forces a cleaner lookup over standard network interfaces
 });
 
 async function sendEmail(to, subject, html) {
