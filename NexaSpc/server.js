@@ -213,7 +213,12 @@ app.post('/api/auth/initiate', async (req, res) => {
       message: `Registration started: ${username} (${email}) via ${verifyVia}`
     });
 
+    function logAdmin(action, data) {
+  console.log(`[ADMIN LOG] ${action}:`, data.message);
+}
+
     // In dev mode include the OTP in the response so it works without real SMTP/SMS
+    const DEV_MODE = process.env.NODE_ENV !== 'production';
     const responsePayload = {
       success: true,
       message: `Verification code sent to your ${verifyVia === 'phone' ? 'phone number' : verifyVia === 'both' ? 'email and phone' : 'email address'}.`,
