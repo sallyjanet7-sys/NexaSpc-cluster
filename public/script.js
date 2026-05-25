@@ -192,7 +192,7 @@ async function handleSignup(e) {
   const email     = document.getElementById('signup-email').value.trim();
   const password  = document.getElementById('signup-password').value;
   const phone     = document.getElementById('signup-phone').value.trim();
-  const verifyVia = document.getElementById('signup-verify-via').value; // 'email'|'phone'|'both'
+  const verifyVia = phone ? 'both' : 'email';
   const errEl     = document.getElementById('signup-error');
   const btn       = document.getElementById('signup-btn');
 
