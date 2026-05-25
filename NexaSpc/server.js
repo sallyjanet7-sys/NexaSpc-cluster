@@ -66,21 +66,36 @@ async function sendSms(phone, message) {
 }
 
 // ─── EMAIL (optional, never crashes the server) ───────────────
-let transporter = null;
-if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
-  try {
-    const nodemailer = require('nodemailer');
-    transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
-      port: parseInt(process.env.SMTP_PORT || '587'),
-      secure: false,
-      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
-    });
-    console.log('[EMAIL] SMTP configured ✓');
-  } catch (e) { console.warn('[EMAIL] nodemailer not available:', e.message); }
-} else {
-  console.log('[EMAIL] No SMTP env vars — emails will be logged to console only.');
-}
+// let transporter = null;
+// if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
+//   try {
+//     const nodemailer = require('nodemailer');
+//     transporter = nodemailer.createTransport({
+//       host: process.env.SMTP_HOST,
+//       port: parseInt(process.env.SMTP_PORT || '587'),
+//       secure: false,
+//       auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
+//     });
+//     console.log('[EMAIL] SMTP configured ✓');
+//   } catch (e) { console.warn('[EMAIL] nodemailer not available:', e.message); }
+// } else {
+//   console.log('[EMAIL] No SMTP env vars — emails will be logged to console only.');
+// }
+
+transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST,
+  port: parseInt(process.env.SMTP_PORT || '587'),
+  secure: false, // true for 465, false for other ports
+  auth: { 
+    user: process.env.SMTP_USER, 
+    pass: process.env.SMTP_PASS 
+  },
+  // Add this block to fix the Render network bug:
+  tls: {
+    rejectUnauthorized: false
+  },
+  dnsTimeout: 10000 // Forces a cleaner lookup over standard network interfaces
+});
 
 async function sendEmail(to, subject, html) {
   // Always log to console

@@ -1031,14 +1031,19 @@ function updatePassStrength(val) {
   const label = document.getElementById('pass-label');
   const colors = ['#ef4444','#f97316','#eab308','#10b981','#00d4ff'];
   const labels = ['Very weak','Weak','Fair','Strong','Very strong'];
-  fill.style.width = (score / 5 * 100) + '%';
-  fill.style.background = colors[score - 1] || '#ef4444';
-  label.textContent = labels[score - 1] || 'Very weak';
-  label.style.color = colors[score - 1] || '#ef4444';
+  
+  if (fill) {
+    fill.style.width = (score / 5 * 100) + '%';
+    fill.style.background = colors[score - 1] || '#ef4444';
+  }
+  if (label) {
+    label.textContent = labels[score - 1] || 'Very weak';
+    label.style.color = colors[score - 1] || '#ef4444';
+  }
 }
 </script>
 <script src="script.js"></script>
-<script src="/NexaSpc/server.js"></script>
-<script src="/NexaSpc/app.js"></script>
+<!-- <script src="/NexaSpc/server.js"></script> -->
+<!-- <script src="/NexaSpc/app.js"></script> -->
 </body>
 </html>
