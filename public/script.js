@@ -293,28 +293,94 @@ async function handleVerifyOtp(e) {
 }
 
 // ── STEP 3: finalise account ─────────────────────────────────
-async function handleCompleteSignup() {
-  const btn   = document.getElementById('complete-signup-btn');
-  const errEl = document.getElementById('complete-error');
+// async function handleCompleteSignup() {
+//   const btn   = document.getElementById('complete-signup-btn');
+//   const errEl = document.getElementById('complete-error');
 
-  errEl.style.display = 'none';
-  btn.disabled  = true;
-  btn.innerHTML = '<span class="spinner"></span> Creating account…';
+//   errEl.style.display = 'none';
+//   btn.disabled  = true;
+//   btn.innerHTML = '<span class="spinner"></span> Creating account…';
+
+//   try {
+//     const data = await api('/auth/complete', {
+//       method: 'POST',
+//       body: JSON.stringify({ email: state.signup.email })
+//     });
+//     saveAuth(data.token, data.user);
+//     renderNav();
+//     toast(`🎉 Welcome to NexaSpc, ${data.user.username}!`);
+//     navigate('dashboard');
+//   } catch (err) {
+//     errEl.textContent   = err.message;
+//     errEl.style.display = 'block';
+//     btn.disabled  = false;
+//     btn.innerHTML = 'Launch My Account 🚀';
+//   }
+// }
+
+async function handleVerifyOtp(e) {
+  e.preventDefault();
+  
+  const form = e.target;
+  const inputEl = form.querySelector('.otp-input');
+  const otp = inputEl.value.trim();
+  
+  // Find card wrappers dynamically
+  const card = form.closest('.otp-card');
+  const errEl = card ? card.querySelector('.alert-error') : null;
+  const btn = form.querySelector('button[type="submit"]');
+
+  // SAFETY BACKUP: If state.signup.email is empty, grab the text right from the card header!
+  let backupEmail = state.signup?.email;
+  if (!backupEmail) {
+    backupEmail = document.getElementById('otp-email-display')?.textContent?.trim();
+  }
+
+  if (!backupEmail || backupEmail === '—') {
+    if (errEl) {
+      errEl.textContent = "Registration session timed out. Please restart.";
+      errEl.style.display = 'block';
+    }
+    return;
+  }
+
+  // Reset UI states
+  if (errEl) errEl.style.display = 'none';
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Verifying…';
+  }
 
   try {
-    const data = await api('/auth/complete', {
+    // Post directly using our verified email parameter string
+    const responseData = await api('/auth/verify', {
       method: 'POST',
-      body: JSON.stringify({ email: state.signup.email })
+      body: JSON.stringify({ email: backupEmail, otp })
     });
-    saveAuth(data.token, data.user);
-    renderNav();
-    toast(`🎉 Welcome to NexaSpc, ${data.user.username}!`);
-    navigate('dashboard');
+    
+    // Explicit success path routing check override
+    if (responseData.success || responseData.message === 'Code verified!') {
+      if (state.signup) {
+        state.signup.verified = true;
+        state.signup.email = backupEmail; // sync state storage lock
+      }
+      
+      // Advance user view panel cleanly
+      showSignupStep(3);
+      toast('Identity successfully verified! ✅');
+    } else {
+      throw new Error(responseData.error || "Verification mismatch encountered");
+    }
   } catch (err) {
-    errEl.textContent   = err.message;
-    errEl.style.display = 'block';
-    btn.disabled  = false;
-    btn.innerHTML = 'Launch My Account 🚀';
+    console.error("🚨 Step 2 Execution Failure Trace:", err);
+    if (errEl) {
+      errEl.textContent = err.message || "Invalid validation token format.";
+      errEl.style.display = 'block';
+    }
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = form.id === 'email-otp-form' ? 'Verify Email' : 'Verify Phone';
+    }
   }
 }
 
