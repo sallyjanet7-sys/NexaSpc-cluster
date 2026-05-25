@@ -115,7 +115,7 @@ function pushNotification(email, type, message, meta = {}) {
   notifications[email] = notifications[email].slice(0, 50);
   adminLog.unshift({ ...notif, userEmail: email, username: users[email]?.username });
   if (adminLog.length > 500) adminLog.pop();
-  // return notif;
+  return notif;
 }
  
 
