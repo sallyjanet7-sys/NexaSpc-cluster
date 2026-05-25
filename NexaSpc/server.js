@@ -94,6 +94,43 @@ async function sendSms(phone, message) {
   // await twilio.messages.create({ body: message, from: process.env.TWILIO_FROM, to: phone });
 }
 
+// ─── EMAIL (optional, never crashes the server) ───────────────
+let transporter = null;
+if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
+  try {
+    const nodemailer = require('nodemailer');
+    transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: parseInt(process.env.SMTP_PORT || '587'),
+      secure: false,
+      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
+    });
+    console.log('[EMAIL] SMTP configured ✓');
+  } catch (e) { console.warn('[EMAIL] nodemailer not available:', e.message); }
+} else {
+  console.log('[EMAIL] No SMTP env vars — emails will be logged to console only.');
+}
+
+async function sendEmail(to, subject, html) {
+  // Always log to console
+  console.log(`\n[EMAIL → ${to}]\nSubject: ${subject}\n`);
+  if (!transporter) return;
+  try {
+    await transporter.sendMail({ from: '"NexaSpc" <noreply@nexaspc.io>', to, subject, html });
+  } catch (e) {
+    console.warn('[EMAIL] Send failed:', e.message);
+  }
+}
+
+// ─── SMS (optional stub) ──────────────────────────────────────
+async function sendSms(phone, message) {
+  console.log(`\n[SMS → ${phone}]\n${message}\n`);
+  // Uncomment for Twilio:
+  // const twilio = require('twilio')(process.env.TWILIO_SID, process.env.TWILIO_TOKEN);
+  // await twilio.messages.create({ body: message, from: process.env.TWILIO_FROM, to: phone });
+}
+
+
 
 // ─── ADMIN / NOTIFICATION HELPERS ─────────────────────────────\
 function pushNotification(email, type, message, meta = {}) {
@@ -107,14 +144,18 @@ function pushNotification(email, type, message, meta = {}) {
   notifications[email] = notifications[email].slice(0, 50);
   adminLog.unshift({ ...notif, userEmail: email, username: users[email]?.username });
   if (adminLog.length > 500) adminLog.pop();
-  return notif;
+  // return notif;
 }
  
+
 function logAdmin(type, data) {
   adminLog.unshift({ id: Date.now() + Math.random(), type, date: new Date().toISOString(), ...data });
   if (adminLog.length > 500) adminLog.pop();
 }
 
+
+//AUTH MIDDLEWARE-------------------------------------------------------
+//--------------------------------------------------------------------------------
 function authMiddleware(req, res, next) {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).json({ error: 'No token provided' });
@@ -135,121 +176,117 @@ function adminMiddleware(req, res, next) {
 //  Saves pending user, sends email OTP + SMS OTP
 // ══════════════════════════════════════════════════════════════
 app.post('/api/auth/initiate', async (req, res) => {
-  const { username, email, password, phone } = req.body;
- 
-  if (!username || !email || !password || !phone)
-    return res.status(400).json({ error: 'All fields are required (username, email, password, phone)' });
- 
-  if (users[email])
-    return res.status(400).json({ error: 'An account with this email already exists' });
- 
-  // Basic format checks
-  const emailRx = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  if (!emailRx.test(email))
-    return res.status(400).json({ error: 'Invalid email address' });
- 
-  if (password.length < 8)
-    return res.status(400).json({ error: 'Password must be at least 8 characters' });
- 
-  const phoneClean = phone.replace(/\s+/g, '');
-  if (phoneClean.length < 7)
-    return res.status(400).json({ error: 'Invalid phone number' });
- 
-  const hashed    = await bcrypt.hash(password, 10);
-  const emailOtp  = generateOtp();
-  const phoneOtp  = generateOtp();
-  const expiry    = otpExpiry(10); // 10 minutes
- 
-  pendingUsers[email] = {
-    username, email, phone: phoneClean,
-    hashedPassword: hashed,
-    emailOtp, phoneOtp,
-    emailOtpExpiry: expiry,
-    phoneOtpExpiry: expiry,
-    emailVerified: false,
-    phoneVerified: false,
-    createdAt: new Date().toISOString()
-  };
- 
-  // Send email OTP
-  await sendEmail(email, '🔐 Verify your NexaSpc email', `
-    <div style="font-family:sans-serif;max-width:520px;margin:auto;background:#0a0e1a;color:#e2e8f0;padding:2.5rem;border-radius:16px">
-      <div style="text-align:center;margin-bottom:1.5rem">
-        <span style="font-size:2rem;font-weight:900;background:linear-gradient(90deg,#00d4ff,#7c3aed);-webkit-background-clip:text;-webkit-text-fill-color:transparent">NexaSpc</span>
-      </div>
-      <h2 style="color:#00d4ff;margin-bottom:0.5rem">Verify Your Email</h2>
-      <p style="color:#94a3b8">Hi <strong style="color:#e2e8f0">${username}</strong>, enter this code to verify your email address:</p>
-      <div style="background:#111827;border:1px solid #1e2d4a;border-radius:12px;padding:1.5rem;text-align:center;margin:1.5rem 0">
-        <span style="font-size:2.5rem;font-weight:900;font-family:monospace;letter-spacing:0.5rem;color:#00d4ff">${emailOtp}</span>
-      </div>
-      <p style="color:#64748b;font-size:0.8rem">This code expires in <strong>10 minutes</strong>. Do not share it with anyone.</p>
-      <p style="color:#64748b;font-size:0.75rem;margin-top:1.5rem;border-top:1px solid #1e2d4a;padding-top:1rem">NexaSpc · Digital Asset Trading Platform · noreply@nexaspc.io</p>
-    </div>`);
- 
-  // Send phone OTP via SMS
-  await sendSms(phoneClean,
-    `Your NexaSpc verification code is: ${phoneOtp}. Valid for 10 minutes. Do not share this code.`
-  );
- 
-  logAdmin('registration_initiated', { userEmail: email, username, message: `Registration started: ${username} (${email})` });
- 
-  res.json({
-    success: true,
-    message: 'Verification codes sent to your email and phone number.',
-    email, phone: phoneClean.replace(/.(?=.{4})/g, '*') // mask phone in response
-  });
+  try {
+    const { username, email, password, phone, verifyVia = 'email' } = req.body;
+
+    // ── Validation ──
+    if (!username || !email || !password)
+      return res.status(400).json({ error: 'Username, email and password are required.' });
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+      return res.status(400).json({ error: 'Invalid email address.' });
+
+    if (password.length < 8)
+      return res.status(400).json({ error: 'Password must be at least 8 characters.' });
+
+    if (users[email])
+      return res.status(400).json({ error: 'An account with this email already exists.' });
+
+    if ((verifyVia === 'phone' || verifyVia === 'both') && !phone)
+      return res.status(400).json({ error: 'Phone number required for phone verification.' });
+
+    // ── Create pending entry ──
+    const otp    = genOtp();
+    const expiry = otpExpiry(15);
+    const hashed = await bcrypt.hash(password, 10);
+
+    pendingUsers[email] = {
+      username, email, phone: phone || '',
+      hashedPassword: hashed,
+      otp, otpExpiry: expiry,
+      verifyVia,           // what was requested
+      emailSent: false,
+      smsSent:   false,
+      verified:  false,
+      createdAt: new Date().toISOString()
+    };
+
+    // ── Send OTP via chosen channel(s) ──
+    const emailHtml = `
+      <div style="font-family:sans-serif;max-width:520px;margin:auto;background:#0a0e1a;color:#e2e8f0;padding:2.5rem;border-radius:16px;border:1px solid #1e2d4a">
+        <div style="text-align:center;margin-bottom:1.5rem">
+          <span style="font-size:2rem;font-weight:900;color:#00d4ff">NexaSpc</span>
+        </div>
+        <h2 style="color:#00d4ff;margin:0 0 0.5rem">Verify Your Email</h2>
+        <p style="color:#94a3b8;margin:0 0 1.5rem">Hi <strong style="color:#e2e8f0">${username}</strong>, enter this code to complete your registration:</p>
+        <div style="background:#111827;border:2px solid #00d4ff;border-radius:12px;padding:1.5rem;text-align:center;margin:0 0 1.5rem">
+          <span style="font-size:3rem;font-weight:900;font-family:monospace;letter-spacing:0.6rem;color:#00d4ff">${otp}</span>
+        </div>
+        <p style="color:#64748b;font-size:0.8rem;margin:0">Valid for <strong>15 minutes</strong>. Never share this code.</p>
+        <hr style="border:none;border-top:1px solid #1e2d4a;margin:1.5rem 0">
+        <p style="color:#475569;font-size:0.75rem;margin:0">NexaSpc · Digital Asset Trading · noreply@nexaspc.io</p>
+      </div>`;
+
+    if (verifyVia === 'email' || verifyVia === 'both') {
+      await sendEmail(email, `${otp} — Your NexaSpc verification code`, emailHtml);
+      pendingUsers[email].emailSent = true;
+    }
+
+    if (verifyVia === 'phone' || verifyVia === 'both') {
+      await sendSms(phone, `NexaSpc code: ${otp} — valid 15 min. Do NOT share.`);
+      pendingUsers[email].smsSent = true;
+    }
+
+    logAdmin('registration_initiated', {
+      userEmail: email, username,
+      message: `Registration started: ${username} (${email}) via ${verifyVia}`
+    });
+
+    // In dev mode include the OTP in the response so it works without real SMTP/SMS
+    const responsePayload = {
+      success: true,
+      message: `Verification code sent to your ${verifyVia === 'phone' ? 'phone number' : verifyVia === 'both' ? 'email and phone' : 'email address'}.`,
+      verifyVia,
+      email,
+      maskedPhone: phone ? phone.replace(/.(?=.{4})/g, '*') : null
+    };
+
+    if (DEV_MODE) {
+      responsePayload.devOtp = otp;
+      console.log(`\n[DEV MODE] OTP for ${email}: ${otp}\n`);
+    }
+
+    res.json(responsePayload);
+  } catch (err) {
+    console.error('[/api/auth/initiate] ERROR:', err);
+    res.status(500).json({ error: 'Server error. Please try again.' });
+  }
 });
  
 // ══════════════════════════════════════════════════════════════
 //  STEP 2a — VERIFY EMAIL OTP
 //  POST /api/auth/verify-email
 // ══════════════════════════════════════════════════════════════
-app.post('/api/auth/verify-email', (req, res) => {
-  const { email, otp } = req.body;
-  const pending = pendingUsers[email];
- 
-  if (!pending)
-    return res.status(400).json({ error: 'No pending registration found for this email' });
- 
-  if (isOtpExpired(pending.emailOtpExpiry))
-    return res.status(400).json({ error: 'Email verification code has expired. Please restart registration.' });
- 
-  if (pending.emailOtp !== otp.trim())
-    return res.status(400).json({ error: 'Invalid email verification code' });
- 
-  pending.emailVerified = true;
- 
-  res.json({
-    success: true,
-    message: 'Email verified successfully!',
-    phoneVerified: pending.phoneVerified
-  });
-});
- 
-// ══════════════════════════════════════════════════════════════
-//  STEP 2b — VERIFY PHONE OTP
-//  POST /api/auth/verify-phone
-// ══════════════════════════════════════════════════════════════
-app.post('/api/auth/verify-phone', (req, res) => {
-  const { email, otp } = req.body;
-  const pending = pendingUsers[email];
- 
-  if (!pending)
-    return res.status(400).json({ error: 'No pending registration found' });
- 
-  if (isOtpExpired(pending.phoneOtpExpiry))
-    return res.status(400).json({ error: 'Phone verification code has expired. Please restart registration.' });
- 
-  if (pending.phoneOtp !== otp.trim())
-    return res.status(400).json({ error: 'Invalid phone verification code' });
- 
-  pending.phoneVerified = true;
- 
-  res.json({
-    success: true,
-    message: 'Phone number verified successfully!',
-    emailVerified: pending.emailVerified
-  });
+app.post('/api/auth/verify', (req, res) => {
+  try {
+    const { email, otp } = req.body;
+    if (!email || !otp) return res.status(400).json({ error: 'Email and OTP required.' });
+
+    const pending = pendingUsers[email];
+    if (!pending) return res.status(400).json({ error: 'No pending registration found. Please start again.' });
+
+    if (isExpired(pending.otpExpiry))
+      return res.status(400).json({ error: 'Code has expired. Please request a new one.' });
+
+    if (pending.otp !== otp.trim())
+      return res.status(400).json({ error: 'Incorrect code. Please check and try again.' });
+
+    pending.verified = true;
+    res.json({ success: true, message: 'Code verified!' });
+  } catch (err) {
+    console.error('[/api/auth/verify] ERROR:', err);
+    res.status(500).json({ error: 'Server error.' });
+  }
 });
  
 // ══════════════════════════════════════════════════════════════
@@ -258,125 +295,101 @@ app.post('/api/auth/verify-phone', (req, res) => {
 //  Both email + phone must be verified first
 // ══════════════════════════════════════════════════════════════
 app.post('/api/auth/complete', async (req, res) => {
-  const { email } = req.body;
-  const pending = pendingUsers[email];
- 
-  if (!pending)
-    return res.status(400).json({ error: 'No pending registration found' });
- 
-  if (!pending.emailVerified)
-    return res.status(400).json({ error: 'Email address not yet verified' });
- 
-  if (!pending.phoneVerified)
-    return res.status(400).json({ error: 'Phone number not yet verified' });
- 
-  // Create the actual user account
-  users[email] = {
-    username:           pending.username,
-    email,
-    phone:              pending.phone,
-    password:           pending.hashedPassword,
-    balance:            0,
-    deposits:           0,
-    profits:            0,
-    bonuses:            500,
-    twoFAEnabled:       false,
-    emailNotifications: true,
-    emailVerified:      true,
-    phoneVerified:      true,
-    country:            '',
-    createdAt:          new Date().toISOString(),
-    lastLogin:          new Date().toISOString()
-  };
- 
-  transactions[email]     = [];
-  notifications[email]    = [];
-  connectedWallets[email] = [];
- 
-  // Clean up pending
-  delete pendingUsers[email];
- 
-  pushNotification(email, 'welcome', `🎉 Welcome to NexaSpc, ${users[email].username}! Your account is fully verified.`);
- 
-  await sendEmail(email, '✅ Account Verified — Welcome to NexaSpc!', `
-    <div style="font-family:sans-serif;max-width:520px;margin:auto;background:#0a0e1a;color:#e2e8f0;padding:2.5rem;border-radius:16px">
-      <div style="text-align:center;margin-bottom:1.5rem">
-        <span style="font-size:2rem;font-weight:900;background:linear-gradient(90deg,#00d4ff,#7c3aed);-webkit-background-clip:text;-webkit-text-fill-color:transparent">NexaSpc</span>
-      </div>
-      <h2 style="color:#10b981">Account Fully Verified ✅</h2>
-      <p>Hi <strong>${users[email].username}</strong>, your identity has been verified and your account is ready.</p>
-      <ul style="color:#94a3b8;line-height:2">
-        <li>✅ Email verified: ${email}</li>
-        <li>✅ Phone verified: ${users[email].phone.replace(/.(?=.{4})/g,'*')}</li>
-        <li>🎁 $500 welcome bonus added to your account</li>
-      </ul>
-      <a href="http://localhost:3000" style="display:inline-block;margin-top:1rem;background:linear-gradient(135deg,#00d4ff,#0099cc);color:#000;font-weight:700;padding:0.75rem 2rem;border-radius:8px;text-decoration:none">Start Trading →</a>
-      <p style="color:#64748b;font-size:0.75rem;margin-top:1.5rem;border-top:1px solid #1e2d4a;padding-top:1rem">NexaSpc · noreply@nexaspc.io</p>
-    </div>`);
- 
-  logAdmin('new_registration', {
-    userEmail: email,
-    username: users[email].username,
-    message: `✅ New verified user: ${users[email].username} (${email})`
-  });
- 
-  const token = jwt.sign({ email, username: users[email].username }, JWT_SECRET, { expiresIn: '7d' });
-  res.json({
-    token,
-    user: {
-      username: users[email].username,
-      email,
+  try {
+    const { email } = req.body;
+    const pending = pendingUsers[email];
+
+    if (!pending)    return res.status(400).json({ error: 'No pending registration found.' });
+    if (!pending.verified) return res.status(400).json({ error: 'Please verify your code first.' });
+
+    // Create the real user
+    users[email] = {
+      username: pending.username, email,
+      phone: pending.phone,
+      password: pending.hashedPassword,
       balance: 0, deposits: 0, profits: 0, bonuses: 500,
-      emailVerified: true, phoneVerified: true
-    }
-  });
+      twoFAEnabled: false, emailNotifications: true,
+      emailVerified: pending.verifyVia !== 'phone',
+      phoneVerified: pending.verifyVia !== 'email',
+      country: '',
+      createdAt: new Date().toISOString(),
+      lastLogin: new Date().toISOString()
+    };
+
+    transactions[email]     = [];
+    notifications[email]    = [];
+    connectedWallets[email] = [];
+    delete pendingUsers[email];
+
+    pushNotif(email, 'welcome', `🎉 Welcome to NexaSpc, ${users[email].username}! Your account is verified.`);
+
+    await sendEmail(email, '✅ Welcome to NexaSpc — Account Verified!', `
+      <div style="font-family:sans-serif;max-width:520px;margin:auto;background:#0a0e1a;color:#e2e8f0;padding:2.5rem;border-radius:16px;border:1px solid #1e2d4a">
+        <div style="text-align:center;margin-bottom:1.5rem"><span style="font-size:2rem;font-weight:900;color:#00d4ff">NexaSpc</span></div>
+        <h2 style="color:#10b981">Account Verified ✅</h2>
+        <p>Hi <strong>${users[email].username}</strong>, you're all set!</p>
+        <p style="color:#94a3b8">Your $500 welcome bonus has been added to your account.</p>
+      </div>`);
+
+    logAdmin('new_registration', {
+      userEmail: email, username: users[email].username,
+      message: `✅ New verified user: ${users[email].username} (${email})`
+    });
+
+    const token = jwt.sign({ email, username: users[email].username }, JWT_SECRET, { expiresIn: '7d' });
+    res.json({
+      token,
+      user: {
+        username: users[email].username, email,
+        balance: 0, deposits: 0, profits: 0, bonuses: 500,
+        emailVerified: users[email].emailVerified,
+        phoneVerified: users[email].phoneVerified
+      }
+    });
+  } catch (err) {
+    console.error('[/api/auth/complete] ERROR:', err);
+    res.status(500).json({ error: 'Server error. Please try again.' });
+  }
 });
  
 // ══════════════════════════════════════════════════════════════
 //  RESEND OTP
 //  POST /api/auth/resend-otp  { email, type: 'email'|'phone' }
 // ══════════════════════════════════════════════════════════════
-app.post('/api/auth/resend-otp', async (req, res) => {
-  const { email, type } = req.body;
-  const pending = pendingUsers[email];
- 
-  if (!pending)
-    return res.status(400).json({ error: 'No pending registration found' });
- 
-  const newOtp    = generateOtp();
-  const newExpiry = otpExpiry(10);
- 
-  if (type === 'email') {
-    pending.emailOtp       = newOtp;
-    pending.emailOtpExpiry = newExpiry;
-    pending.emailVerified  = false;
- 
-    await sendEmail(email, '🔐 New NexaSpc Email Verification Code', `
-      <div style="font-family:sans-serif;max-width:520px;margin:auto;background:#0a0e1a;color:#e2e8f0;padding:2.5rem;border-radius:16px">
-        <h2 style="color:#00d4ff">New Verification Code</h2>
-        <p>Your new email verification code:</p>
-        <div style="background:#111827;border:1px solid #1e2d4a;border-radius:12px;padding:1.5rem;text-align:center;margin:1.5rem 0">
-          <span style="font-size:2.5rem;font-weight:900;font-family:monospace;letter-spacing:0.5rem;color:#00d4ff">${newOtp}</span>
-        </div>
-        <p style="color:#64748b;font-size:0.8rem">Expires in 10 minutes.</p>
-      </div>`);
- 
-    return res.json({ success: true, message: 'New email verification code sent.' });
+app.post('/api/auth/resend', async (req, res) => {
+  try {
+    const { email } = req.body;
+    const pending = pendingUsers[email];
+    if (!pending) return res.status(400).json({ error: 'No pending registration found.' });
+
+    const newOtp = genOtp();
+    pending.otp       = newOtp;
+    pending.otpExpiry = otpExpiry(15);
+    pending.verified  = false;
+
+    if (pending.verifyVia === 'email' || pending.verifyVia === 'both') {
+      await sendEmail(email, `${newOtp} — New NexaSpc code`, `
+        <div style="font-family:sans-serif;max-width:520px;margin:auto;background:#0a0e1a;color:#e2e8f0;padding:2.5rem;border-radius:16px;border:1px solid #1e2d4a">
+          <span style="font-size:2rem;font-weight:900;color:#00d4ff">NexaSpc</span>
+          <h2 style="color:#00d4ff;margin-top:1rem">New Verification Code</h2>
+          <div style="background:#111827;border:2px solid #00d4ff;border-radius:12px;padding:1.5rem;text-align:center;margin:1.5rem 0">
+            <span style="font-size:3rem;font-weight:900;font-family:monospace;letter-spacing:0.6rem;color:#00d4ff">${newOtp}</span>
+          </div>
+          <p style="color:#64748b;font-size:0.8rem">Valid for 15 minutes.</p>
+        </div>`);
+    }
+
+    if (pending.verifyVia === 'phone' || pending.verifyVia === 'both') {
+      await sendSms(pending.phone, `New NexaSpc code: ${newOtp} — valid 15 min.`);
+    }
+
+    const payload = { success: true, message: 'New code sent.' };
+    if (DEV_MODE) { payload.devOtp = newOtp; console.log(`[DEV] New OTP for ${email}: ${newOtp}`); }
+    res.json(payload);
+  } catch (err) {
+    console.error('[/api/auth/resend] ERROR:', err);
+    res.status(500).json({ error: 'Server error.' });
   }
- 
-  if (type === 'phone') {
-    pending.phoneOtp       = newOtp;
-    pending.phoneOtpExpiry = newExpiry;
-    pending.phoneVerified  = false;
- 
-    await sendSms(pending.phone,
-      `Your new NexaSpc verification code is: ${newOtp}. Valid for 10 minutes.`
-    );
- 
-    return res.json({ success: true, message: 'New SMS verification code sent.' });
-  }
- 
-  res.status(400).json({ error: "type must be 'email' or 'phone'" });
 });
  
 // ══════════════════════════════════════════════════════════════
