@@ -44,35 +44,6 @@ const adminLog = [];
 // pendingUsers[email] = { username, email, hashedPassword, phone, emailOtp, phoneOtp, emailOtpExpiry, phoneOtpExpiry, emailVerified, phoneVerified }
 const pendingUsers = {};
 
-
-// Email transporter
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST || 'smtp.ethereal.email',
-  port: parseInt(process.env.SMTP_PORT || '587'),
-  secure: false,
-  auth: {
-    user: process.env.SMTP_USER || 'your@ethereal.email',
-    pass: process.env.SMTP_PASS || 'yourpassword'
-  }
-});
- 
-async function sendEmail(to, subject, html) {
-  try {
-    const info = await transporter.sendMail({
-      from: '"NexaSpc" <noreply@nexaspc.io>',
-      to, subject, html
-    });
-    console.log(`[EMAIL] "${subject}" → ${to}  (id: ${info.messageId})`);
-    // If using Ethereal test accounts, log the preview URL
-    if (info.messageId && process.env.SMTP_HOST === undefined) {
-      const nodemailerModule = require('nodemailer');
-      console.log('[EMAIL PREVIEW]', nodemailerModule.getTestMessageUrl(info));
-    }
-  } catch (e) {
-    console.warn('[EMAIL] Failed — set SMTP env vars:', e.message);
-  }
-}
-
 // ─── OTP HELPERS ──────────────────────────────────────────────
 function generateOtp() {
   return Math.floor(100000 + Math.random() * 900000).toString(); // 6-digit
