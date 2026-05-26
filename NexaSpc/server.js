@@ -264,6 +264,14 @@ function otpExpiry(minutes) {
     res.status(500).json({ error: 'Server error. Please try again.' });
   }
 });
+
+// ─── ADD THIS UTILITY FUNCTION NEAR THE TOP OF SERVER.JS ───
+function isExpired(expiryTime) {
+  if (!expiryTime) return true; // If no expiry exists, treat it as expired
+  const now = new Date();
+  const expiry = new Date(expiryTime);
+  return now > expiry;
+}
  
 // ══════════════════════════════════════════════════════════════
 //  STEP 2a — VERIFY EMAIL OTP
