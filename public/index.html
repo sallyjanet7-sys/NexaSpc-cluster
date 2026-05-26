@@ -503,8 +503,8 @@
      PAGE: SIGN UP
 ══════════════════════════════════════════ -->
 <div class="page" id="page-signup">
-  <div class="form-page" style="align-items:flex-start;padding-top:3rem">
-    <div class="form-card" style="max-width:480px">
+  <div class="form-page" style="align-items:flex-start;padding-top:3rem;padding-bottom:3rem">
+    <div class="form-card" style="max-width:480px;width:100%">
  
       <!-- Logo -->
       <div style="text-align:center;margin-bottom:1.75rem">
@@ -513,134 +513,157 @@
         <div class="form-subtitle">Join 350,000+ traders on NexaSpc</div>
       </div>
  
-      <!-- Step progress bar -->
+      <!-- ── Progress bar ── -->
       <div class="signup-progress">
         <div class="step-item">
-          <div class="step-dot active" id="step-dot-1">1</div>
+          <div class="step-dot active">1</div>
           <div class="step-label">Details</div>
         </div>
         <div class="step-line"></div>
         <div class="step-item">
-          <div class="step-dot pending" id="step-dot-2">2</div>
+          <div class="step-dot pending">2</div>
           <div class="step-label">Verify</div>
         </div>
         <div class="step-line"></div>
         <div class="step-item">
-          <div class="step-dot pending" id="step-dot-3">3</div>
+          <div class="step-dot pending">3</div>
           <div class="step-label">Done</div>
         </div>
       </div>
  
-      <!-- ── STEP 1: Account details ── -->
+      <!-- ════════════════════════════
+           STEP 1 — Account details
+      ════════════════════════════ -->
       <div class="signup-step active" id="signup-step-1">
         <div class="alert alert-error" id="signup-error" style="display:none"></div>
+ 
         <form id="signup-form">
           <div class="form-group">
             <label class="form-label">Username</label>
-            <input class="form-input" type="text" id="signup-username" placeholder="e.g. cryptotrader99" required>
+            <input class="form-input" type="text" id="signup-username"
+              placeholder="e.g. cryptotrader99" required autocomplete="username">
           </div>
+ 
           <div class="form-group">
             <label class="form-label">Email Address</label>
-            <input class="form-input" type="email" id="signup-email" placeholder="you@example.com" required>
+            <input class="form-input" type="email" id="signup-email"
+              placeholder="you@example.com" required autocomplete="email">
           </div>
+ 
           <div class="form-group">
-            <label class="form-label">Phone Number</label>
-            <input class="form-input" type="tel" id="signup-phone" placeholder="0 801 234 5678" optional>
-            <div style="font-size:0.75rem;color:var(--text3);margin-top:4px">Include country code. We'll send an SMS verification code.</div>
+            <label class="form-label">Phone Number <span style="color:var(--text3);font-weight:400">(optional)</span></label>
+            <input class="form-input" type="tel" id="signup-phone"
+              placeholder="+234 801 234 5678" autocomplete="tel">
+            <div style="font-size:0.74rem;color:var(--text3);margin-top:4px">
+              Include country code if using phone verification.
+            </div>
           </div>
+ 
           <div class="form-group">
             <label class="form-label">Password</label>
-            <input class="form-input" type="password" id="signup-password" placeholder="Min. 8 characters" minlength="8" required
-              oninput="updatePassStrength(this.value)">
+            <input class="form-input" type="password" id="signup-password"
+              placeholder="Min. 8 characters" minlength="8" required
+              oninput="updatePassStrength(this.value)" autocomplete="new-password">
             <div class="pass-strength">
               <div class="pass-strength-bar"><div class="pass-strength-fill" id="pass-fill"></div></div>
               <div class="pass-strength-label" id="pass-label">Enter a password</div>
             </div>
           </div>
-          <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.2);border-radius:8px;padding:0.75rem 1rem;font-size:0.8rem;color:#6ee7b7;margin-bottom:1.25rem">
-            🎁 Get a $500 welcome bonus when you verify your account!
+ 
+          <!-- Verify via selector -->
+          <div class="form-group">
+            <label class="form-label">Send verification code to</label>
+            <select class="form-input" id="signup-verify-via">
+              <option value="email">📧 Email address</option>
+              <option value="phone">📱 Phone number (SMS)</option>
+              <option value="both">📧📱 Both email &amp; phone</option>
+            </select>
           </div>
-          <button type="submit" id="signup-btn" class="btn btn-primary btn-full">Continue →</button>
+ 
+          <div class="bonus-banner">
+            🎁 Get a <strong>$500 welcome bonus</strong> when you verify your account!
+          </div>
+ 
+          <button type="submit" id="signup-btn" class="btn btn-primary btn-full">
+            Continue →
+          </button>
         </form>
-        <div class="form-footer">Already have an account? <a href="#" onclick="navigate('login')">Log in</a></div>
+ 
+        <div class="form-footer">
+          Already have an account? <a href="#" onclick="navigate('login')">Log in</a>
+        </div>
       </div>
  
-      <!-- ── STEP 2: OTP verification ── -->
-       
+      <!-- ════════════════════════════
+           STEP 2 — Enter OTP
+      ════════════════════════════ -->
       <div class="signup-step" id="signup-step-2">
-        <!-- <div style="margin-bottom:1.5rem">
-          <p style="font-size:0.9rem;color:var(--text2);line-height:1.6">
-            We've sent verification codes to your email and phone number. Enter both codes below to verify your identity.
-          </p> -->
-        <div id="otp-dev-hint" class="alert alert-info" style="display:none; background:rgba(0,212,255,0.1); color:#00d4ff; border:1px solid #00d4ff; margin-bottom:1rem; padding:0.75rem; border-radius:8px; font-family:monospace;">
+ 
+        <!-- Channel description — filled by JS -->
+        <div class="otp-card">
+          <div class="otp-card-header">
+            <span class="otp-card-icon">🔐</span>
+            <div>
+              <div class="otp-card-title">Verify Your Identity</div>
+              <div class="otp-card-sub" id="otp-channel-desc">A code was sent to your contact.</div>
+            </div>
+          </div>
+ 
+          <!-- Dev-mode hint (only shown when server is in DEV_MODE) -->
+          <div id="otp-dev-hint" class="dev-hint" style="display:none"></div>
+ 
+          <div class="alert alert-error" id="otp-error" style="display:none"></div>
+ 
+          <form id="otp-form">
+            <div class="form-group" style="margin-bottom:1rem">
+              <label class="form-label">Enter 6-Digit Code</label>
+              <input class="form-input otp-input" type="text" id="otp-input"
+                placeholder="● ● ● ● ● ●"
+                maxlength="6" inputmode="numeric"
+                pattern="[0-9]{6}" autocomplete="one-time-code" required>
+            </div>
+            <button type="submit" id="verify-otp-btn" class="btn btn-primary btn-full">
+              Verify Code
+            </button>
+          </form>
+ 
+          <div style="text-align:center;margin-top:1rem">
+            <button id="resend-otp-btn" class="resend-btn" onclick="resendOtp()">
+              Resend code
+            </button>
+          </div>
         </div>
-        <div style="margin-bottom:1.5rem">
-          <p id="otp-channel-desc" style="font-size:0.9rem;color:var(--text2);line-height:1.6">
-          Enter the 6-digit verification code sent to your credentials to complete registration.
-         </p>
+ 
+        <div style="margin-top:1rem;text-align:center">
+          <button class="btn btn-ghost btn-sm" onclick="showSignupStep(1)">
+            ← Back
+          </button>
         </div>
       </div>
  
-        <!-- Email OTP -->
-        <div class="otp-card" id="email-otp-card">
-          <div class="otp-card-header">
-            <span class="otp-card-icon">📧</span>
-            <div>
-              <div class="otp-card-title">Email Verification</div>
-              <div class="otp-card-sub" id="otp-email-display">—</div>
-            </div>
-          </div>
-          <div class="alert alert-error" id="email-otp-error" style="display:none"></div>
-          <div id="email-otp-status" style="display:none;font-size:0.85rem;margin-bottom:0.75rem"></div>
-          <form id="email-otp-form" style="display:flex;gap:0.75rem;align-items:flex-end">
-            <div style="flex:1">
-              <label class="form-label">6-Digit Code</label>
-              <input class="form-input otp-input" type="text" id="email-otp-input"
-                placeholder="● ● ● ● ● ●" maxlength="6" pattern="[0-9]{6}"
-                inputmode="numeric" autocomplete="one-time-code">
-            </div>
-            <button type="submit" id="verify-email-btn" class="btn btn-primary" style="margin-bottom:0">Verify</button>
-          </form>
-          <button id="resend-email-otp" class="resend-btn" onclick="resendOtp('email')">Resend code</button>
-        </div>
- 
-        <!-- Phone OTP -->
-        <div class="otp-card" id="phone-otp-card" style="margin-top:1rem">
-          <div class="otp-card-header">
-            <span class="otp-card-icon">📱</span>
-            <div>
-              <div class="otp-card-title">Phone Verification</div>
-              <div class="otp-card-sub" id="otp-phone-display">—</div>
-            </div>
-          </div>
-          <div class="alert alert-error" id="phone-otp-error" style="display:none"></div>
-          <div id="phone-otp-status" style="display:none;font-size:0.85rem;margin-bottom:0.75rem"></div>
-          <form id="phone-otp-form" style="display:flex;gap:0.75rem;align-items:flex-end">
-            <div style="flex:1">
-              <label class="form-label">6-Digit Code</label>
-              <input class="form-input otp-input" type="text" id="phone-otp-input"
-                placeholder="● ● ● ● ● ●" maxlength="6" pattern="[0-9]{6}"
-                inputmode="numeric" autocomplete="one-time-code">
-            </div>
-            <button type="submit" id="verify-phone-btn" class="btn btn-primary" style="margin-bottom:0">Verify</button>
-          </form>
-          <button id="resend-phone-otp" class="resend-btn" onclick="resendOtp('phone')">Resend code</button>
-        </div>
-      </div>
- 
-      <!-- ── STEP 3: All verified ── -->
+      <!-- ════════════════════════════
+           STEP 3 — All done
+      ════════════════════════════ -->
       <div class="signup-step" id="signup-step-3">
-        <div style="text-align:center;padding:1rem 0">
-          <div style="font-size:4rem;margin-bottom:1rem">🎉</div>
-          <h3 style="font-size:1.25rem;font-weight:800;margin-bottom:0.5rem">Identity Verified!</h3>
-          <p style="font-size:0.875rem;color:var(--text2);margin-bottom:0.5rem">Both your email and phone number have been verified.</p>
-          <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.25);border-radius:10px;padding:1rem;margin:1.25rem 0;text-align:left;font-size:0.85rem;line-height:2">
-            <div>✅ Email address verified</div>
-            <div>✅ Phone number verified</div>
-            <div>🎁 $500 welcome bonus ready</div>
+        <div style="text-align:center;padding:0.5rem 0 1rem">
+          <div style="font-size:4rem;margin-bottom:0.75rem">🎉</div>
+          <h3 style="font-size:1.25rem;font-weight:800;margin-bottom:0.5rem">
+            Identity Verified!
+          </h3>
+          <p style="font-size:0.875rem;color:var(--text2);margin-bottom:1.25rem">
+            Your account is ready to activate.
+          </p>
+ 
+          <div class="verified-checklist">
+            <div class="verified-item">✅ Identity verified</div>
+            <div class="verified-item">✅ Account secured</div>
+            <div class="verified-item">🎁 $500 welcome bonus ready</div>
           </div>
-          <div class="alert alert-error" id="complete-error" style="display:none"></div>
-          <button id="complete-signup-btn" class="btn btn-primary btn-full" onclick="handleCompleteSignup()">
+ 
+          <div class="alert alert-error" id="complete-error" style="display:none;margin-top:1rem"></div>
+ 
+          <button id="complete-signup-btn" class="btn btn-primary btn-full"
+            onclick="handleCompleteSignup()" style="margin-top:1.25rem">
             Launch My Account 🚀
           </button>
         </div>
