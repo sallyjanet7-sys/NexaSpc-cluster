@@ -45,39 +45,39 @@ function logout() {
 }
 
 // ── API ──
-async function api(endpoint, options = {}) {
-  // Ensure headers are handled cleanly
-  const headers = {
-    'Content-Type': 'application/json',
-    ...options.headers
-  };
-
-  const API = '/api'; // Maps to your Render domain
-
-  const res = await fetch(API + endpoint, { headers, ...options });
-
-  // ── THE CRITICAL FIX ──
-  if (!res.ok) {
-    // Read the raw text from the server error page
-    const errorText = await res.text();
-    console.error(`🚨 Backend Crashed at ${endpoint}! Server says:\n`, errorText);
-    
-    // Attempt to throw a clean message to your UI
-    let parsedError;
-    try { parsedError = JSON.parse(errorText); } catch(e) {}
-    throw new Error(parsedError?.error || `Server Error (${res.status}). Check F12 console.`);
-  }
-
-  return await res.json();
-}
 // async function api(endpoint, options = {}) {
-//   const headers = { 'Content-Type': 'application/json' };
-//   if (state.token) headers['Authorization'] = `Bearer ${state.token}`;
+//   // Ensure headers are handled cleanly
+//   const headers = {
+//     'Content-Type': 'application/json',
+//     ...options.headers
+//   };
+
+//   const API = '/api'; // Maps to your Render domain
+
 //   const res = await fetch(API + endpoint, { headers, ...options });
-//   const data = await res.json();
-//   if (!res.ok) throw new Error(data.error || 'Request failed');
-//   return data;
+
+//   // ── THE CRITICAL FIX ──
+//   if (!res.ok) {
+//     // Read the raw text from the server error page
+//     const errorText = await res.text();
+//     console.error(`🚨 Backend Crashed at ${endpoint}! Server says:\n`, errorText);
+    
+//     // Attempt to throw a clean message to your UI
+//     let parsedError;
+//     try { parsedError = JSON.parse(errorText); } catch(e) {}
+//     throw new Error(parsedError?.error || `Server Error (${res.status}). Check F12 console.`);
+//   }
+
+//   return await res.json();
 // }
+async function api(endpoint, options = {}) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (state.token) headers['Authorization'] = `Bearer ${state.token}`;
+  const res  = await fetch(API + endpoint, { headers, ...options });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Request failed');
+  return data;
+}
 
 // ── NAVIGATION ──
 function navigate(page) {
