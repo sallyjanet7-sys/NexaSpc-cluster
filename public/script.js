@@ -170,7 +170,7 @@ async function handleLogin(e) {
   const errEl    = document.getElementById('login-error');
   const btn      = document.getElementById('login-btn');
   errEl.style.display = 'none';
-  btn.disabled  = true;
+  btn.disabled  = false;
   btn.innerHTML = '<span class="spinner"></span> Signing in…';
   try {
     const data = await api('/login', {
