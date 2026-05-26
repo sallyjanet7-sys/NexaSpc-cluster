@@ -283,11 +283,27 @@ app.post('/api/auth/verify', (req, res) => {
     if (pending.otp !== otp.trim())
       return res.status(400).json({ error: 'Incorrect code. Please check and try again.' });
 
+    if (pending.otpExpiry) {
+      const now = new Date();
+      const expiry = new Date(pending.otpExpiry);
+      if (now > expiry) {
+        return res.status(400).json({ error: 'Code has expired. Please request a new one.' });
+      }
+    }
+
+    // FIX 2: Safely convert both values to strings before evaluating to prevent .trim() crashes
+    const safeInputOtp = String(otp).trim();
+    const safeServerOtp = String(pending.otp).trim();
+
+    if (safeServerOtp !== safeInputOtp) {
+      return res.status(400).json({ error: 'Incorrect code. Please check and try again.' });
+    }
+
     pending.verified = true;
-    res.json({ success: true, message: 'Code verified!' });
+    return res.json({ success: true, message: 'Code verified!' });
   } catch (err) {
-    console.error('[/api/auth/verify] ERROR:', err);
-    res.status(500).json({ error: 'Server error.' });
+    console.error('[/api/auth/verify] CRITICAL EXCEPTION:', err);
+    return res.status(500).json({ error: 'Server error.' });
   }
 });
  
