@@ -936,6 +936,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   document.getElementById('login-form')?.addEventListener('submit', handleLogin);
   document.getElementById('signup-form')?.addEventListener('submit', handleSignup);
+  document.getElementById('otp-form')?.addEventListener('submit', handleVerifyOtp);
   document.getElementById('deposit-form')?.addEventListener('submit', handleDeposit);
   document.getElementById('withdraw-form')?.addEventListener('submit', handleWithdraw);
   document.getElementById('settings-profile-form')?.addEventListener('submit', handleUpdateProfile);
