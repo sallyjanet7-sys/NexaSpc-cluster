@@ -7,7 +7,7 @@ const jwt = require('jsonwebtoken');
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const path = require('path');
-const {resend} = require('resend');
+const {Resend} = require('resend');
 
 const dotenv = require('dotenv');
 dotenv.config();
@@ -144,14 +144,6 @@ async function sendEmail(toEmail, subjectText, htmlContent) {
   } catch (error) {
     console.error('[EMAIL] Resend SDK failed to transmit message:', error.message);
     throw error; // Passes the error along so your route can handle it gracefully
-  }
-  // Always log to console
-  console.log(`\n[EMAIL → ${toEmail}]\nSubject: ${subjectText}\n`);
-  if (!transporter) return;
-  try {
-    await transporter.sendMail({ from: '"NexaSpc" <noreply@nexaspc.io>', to, subject, html });
-  } catch (e) {
-    console.warn('[EMAIL] Send failed:', e.message);
   }
 }
 
