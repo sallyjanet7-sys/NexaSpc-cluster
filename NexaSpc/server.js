@@ -82,21 +82,46 @@ async function sendSms(phone, message) {
 //   console.log('[EMAIL] No SMTP env vars — emails will be logged to console only.');
 // }
 
-transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST || '74.125.142.108',
-  port: parseInt(process.env.SMTP_PORT || '465'),
-  secure: true, // true for 465, false for other ports
-  auth: { 
-    user: process.env.SMTP_USER, 
-    pass: process.env.SMTP_PASS 
-  },
-  family:4,
-  // Add this block to fix the Render network bug:
-  // tls: {
-  //   rejectUnauthorized: false
-  // },
-  dnsTimeout: 10000 // Forces a cleaner lookup over standard network interfaces
-});
+// transporter = nodemailer.createTransport({
+//   host: process.env.SMTP_HOST || 'smtp.gmail.com',
+//   port: parseInt(process.env.SMTP_PORT || '465'),
+//   secure: true, // true for 465, false for other ports
+//   auth: { 
+//     user: process.env.SMTP_USER, 
+//     pass: process.env.SMTP_PASS 
+//   },
+//   family:4,
+//   // Add this block to fix the Render network bug:
+//   // tls: {
+//   //   rejectUnauthorized: false
+//   // },
+//   dnsTimeout: 10000 // Forces a cleaner lookup over standard network interfaces
+// });
+
+if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
+  try {
+    const nodemailer = require('nodemailer');
+    transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST.trim(),
+      port: parseInt(process.env.SMTP_PORT || '465'),
+      secure: true, // Forces SSL/TLS from millisecond zero
+      auth: {
+        user: process.env.SMTP_USER.trim(),
+        pass: process.env.SMTP_PASS.trim()
+      },
+      family: 4, // Prevents Render from getting lost on IPv6 routing lines
+      tls: {
+        rejectUnauthorized: false, // Prevents connection failures from self-signed certificates
+        minVersion: 'TLSv1.2'      // Forces modern security protocol execution
+      },
+      connectionTimeout: 15000, // Extends connection patience to 15 seconds
+      greetingTimeout: 15000
+    });
+    console.log('[EMAIL] Transporter initialized and secured ✓');
+  } catch (e) { 
+    console.warn('[EMAIL] Nodemailer initialization failed:', e.message); 
+  }
+};
 
 async function sendEmail(to, subject, html) {
   // Always log to console
