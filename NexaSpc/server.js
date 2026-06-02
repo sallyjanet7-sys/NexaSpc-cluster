@@ -98,30 +98,35 @@ async function sendSms(phone, message) {
 //   dnsTimeout: 10000 // Forces a cleaner lookup over standard network interfaces
 // });
 
+const dns = require('dns');
+
 if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
   try {
     const nodemailer = require('nodemailer');
     transporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST.trim(),
       port: parseInt(process.env.SMTP_PORT || '465'),
-      secure: true, // Forces SSL/TLS from millisecond zero
+      secure: true, 
       auth: {
         user: process.env.SMTP_USER.trim(),
         pass: process.env.SMTP_PASS.trim()
       },
-      family: 4, // Prevents Render from getting lost on IPv6 routing lines
-      tls: {
-        rejectUnauthorized: false, // Prevents connection failures from self-signed certificates
-        minVersion: 'TLSv1.2'      // Forces modern security protocol execution
+      // 👇 THIS FORCE-PREVENTS ENETUNREACH BY BLOCKING ALL IPV6 LOOKUPS
+      lookup: (hostname, options, callback) => {
+        options.family = 4; // Explicitly restrict DNS lookup to IPv4 addresses only
+        dns.lookup(hostname, options, callback);
       },
-      connectionTimeout: 15000, // Extends connection patience to 15 seconds
-      greetingTimeout: 15000
+      tls: {
+        rejectUnauthorized: false,
+        minVersion: 'TLSv1.2'
+      },
+      connectionTimeout: 15000
     });
-    console.log('[EMAIL] Transporter initialized and secured ✓');
+    console.log('[EMAIL] IPv4 Forced Transporter initialized ✓');
   } catch (e) { 
     console.warn('[EMAIL] Nodemailer initialization failed:', e.message); 
   }
-};
+}
 
 async function sendEmail(to, subject, html) {
   // Always log to console
