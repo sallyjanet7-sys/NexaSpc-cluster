@@ -7,7 +7,7 @@ const jwt = require('jsonwebtoken');
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const path = require('path');
-const nodemailer = require('nodemailer');
+const {resend} = require('resend');
 
 const dotenv = require('dotenv');
 dotenv.config();
@@ -98,39 +98,55 @@ async function sendSms(phone, message) {
 //   dnsTimeout: 10000 // Forces a cleaner lookup over standard network interfaces
 // });
 
-const dns = require('dns');
+// const dns = require('dns');
 
-if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
+// if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
+//   try {
+//     const nodemailer = require('nodemailer');
+//     transporter = nodemailer.createTransport({
+//       host: process.env.SMTP_HOST.trim(),
+//       port: parseInt(process.env.SMTP_PORT || '465'),
+//       secure: true, 
+//       auth: {
+//         user: process.env.SMTP_USER.trim(),
+//         pass: process.env.SMTP_PASS.trim()
+//       },
+//       // 👇 THIS FORCE-PREVENTS ENETUNREACH BY BLOCKING ALL IPV6 LOOKUPS
+//       lookup: (hostname, options, callback) => {
+//         options.family = 4; // Explicitly restrict DNS lookup to IPv4 addresses only
+//         dns.lookup(hostname, options, callback);
+//       },
+//       tls: {
+//         rejectUnauthorized: false,
+//         minVersion: 'TLSv1.2'
+//       },
+//       connectionTimeout: 15000
+//     });
+//     console.log('[EMAIL] IPv4 Forced Transporter initialized ✓');
+//   } catch (e) { 
+//     console.warn('[EMAIL] Nodemailer initialization failed:', e.message); 
+//   }
+// }
+
+const resend = new Resend(process.env.RESEND_API_KEY);
+
+async function sendEmail(toEmail, subjectText, htmlContent) {
   try {
-    const nodemailer = require('nodemailer');
-    transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST.trim(),
-      port: parseInt(process.env.SMTP_PORT || '465'),
-      secure: true, 
-      auth: {
-        user: process.env.SMTP_USER.trim(),
-        pass: process.env.SMTP_PASS.trim()
-      },
-      // 👇 THIS FORCE-PREVENTS ENETUNREACH BY BLOCKING ALL IPV6 LOOKUPS
-      lookup: (hostname, options, callback) => {
-        options.family = 4; // Explicitly restrict DNS lookup to IPv4 addresses only
-        dns.lookup(hostname, options, callback);
-      },
-      tls: {
-        rejectUnauthorized: false,
-        minVersion: 'TLSv1.2'
-      },
-      connectionTimeout: 15000
+    const data = await resend.emails.send({
+      from: 'onboarding@resend.dev', // Default testing domain provided by Resend
+      to: toEmail,
+      subject: subjectText,
+      html: htmlContent
     });
-    console.log('[EMAIL] IPv4 Forced Transporter initialized ✓');
-  } catch (e) { 
-    console.warn('[EMAIL] Nodemailer initialization failed:', e.message); 
+    
+    console.log(`[EMAIL] Verification code successfully routed to ${toEmail} via Resend ✓`, data);
+    return data;
+  } catch (error) {
+    console.error('[EMAIL] Resend SDK failed to transmit message:', error.message);
+    throw error; // Passes the error along so your route can handle it gracefully
   }
-}
-
-async function sendEmail(to, subject, html) {
   // Always log to console
-  console.log(`\n[EMAIL → ${to}]\nSubject: ${subject}\n`);
+  console.log(`\n[EMAIL → ${toEmail}]\nSubject: ${subjectText}\n`);
   if (!transporter) return;
   try {
     await transporter.sendMail({ from: '"NexaSpc" <noreply@nexaspc.io>', to, subject, html });
