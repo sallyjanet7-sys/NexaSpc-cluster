@@ -8,6 +8,7 @@ const cors = require('cors');
 const bodyParser = require('body-parser');
 const path = require('path');
 const {Resend} = require('resend');
+const nodemailer = require('nodemailer');
 
 const dotenv = require('dotenv');
 dotenv.config();
@@ -98,35 +99,35 @@ async function sendSms(phone, message) {
 //   dnsTimeout: 10000 // Forces a cleaner lookup over standard network interfaces
 // });
 
-// const dns = require('dns');
+const dns = require('dns');
 
-// if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
-//   try {
-//     const nodemailer = require('nodemailer');
-//     transporter = nodemailer.createTransport({
-//       host: process.env.SMTP_HOST.trim(),
-//       port: parseInt(process.env.SMTP_PORT || '465'),
-//       secure: true, 
-//       auth: {
-//         user: process.env.SMTP_USER.trim(),
-//         pass: process.env.SMTP_PASS.trim()
-//       },
-//       // 👇 THIS FORCE-PREVENTS ENETUNREACH BY BLOCKING ALL IPV6 LOOKUPS
-//       lookup: (hostname, options, callback) => {
-//         options.family = 4; // Explicitly restrict DNS lookup to IPv4 addresses only
-//         dns.lookup(hostname, options, callback);
-//       },
-//       tls: {
-//         rejectUnauthorized: false,
-//         minVersion: 'TLSv1.2'
-//       },
-//       connectionTimeout: 15000
-//     });
-//     console.log('[EMAIL] IPv4 Forced Transporter initialized ✓');
-//   } catch (e) { 
-//     console.warn('[EMAIL] Nodemailer initialization failed:', e.message); 
-//   }
-// }
+if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
+  try {
+    const nodemailer = require('nodemailer');
+    transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST.trim(),
+      port: parseInt(process.env.SMTP_PORT || '465'),
+      secure: true, 
+      auth: {
+        user: process.env.SMTP_USER.trim(),
+        pass: process.env.SMTP_PASS.trim()
+      },
+      // 👇 THIS FORCE-PREVENTS ENETUNREACH BY BLOCKING ALL IPV6 LOOKUPS
+      lookup: (hostname, options, callback) => {
+        options.family = 4; // Explicitly restrict DNS lookup to IPv4 addresses only
+        dns.lookup(hostname, options, callback);
+      },
+      tls: {
+        rejectUnauthorized: false,
+        minVersion: 'TLSv1.2'
+      },
+      connectionTimeout: 15000
+    });
+    console.log('[EMAIL] IPv4 Forced Transporter initialized ✓');
+  } catch (e) { 
+    console.warn('[EMAIL] Nodemailer initialization failed:', e.message); 
+  }
+}
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
