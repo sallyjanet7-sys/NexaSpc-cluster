@@ -75,54 +75,77 @@ async function sendSms(phone, message) {
 }
 
 
-// ─── EMAIL (optional, never crashes the server) ───────────────
+// ─── GMAIL SMTP TRANSPORTER (FORCE IPV4 + PORT 587) ───
 const dns = require('dns');
 
-// ─── GMAIL SMTP TRANSPORTER (FORCE IPV4 + PORT 587) ───
-const transporter = nodemailer.createTransport({
-  host: 'smtp.gmail.com',
-  port: 587,
-  secure: false, // Must be false for port 587 (uses STARTTLS)
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS
-  },
-  // 👇 CRITICAL: Bypasses Render's IPv6 blocking (Fixes ENETUNREACH)
-  lookup: (hostname, options, callback) => {
-    options.family = 4;
-    dns.lookup(hostname, options, callback);
-  },
-  tls: {
-    rejectUnauthorized: false // Prevents cloud SSL handshake drops
-  },
-  connectionTimeout: 15000,
-  greetingTimeout: 15000
-});
+// ─── 1. FORCE NODE.JS PROCESS TO PREFER IPV4 GLOBAL ───
+if (dns.setDefaultResultOrder) {
+  dns.setDefaultResultOrder('ipv4first');
+}
 
-// Verify Gmail SMTP Connection on Server Startup
-transporter.verify((error, success) => {
-  if (error) {
-    console.error('[GMAIL SMTP] Connection Failed:', error.message);
-  } else {
-    console.log('[GMAIL SMTP] Server is ready to send emails ✓');
-  }
-});
+// ─── 2. FUNCTION TO GET GMAIL'S IPV4 DIRECTLY ───
+let transporter;
 
-async function sendEmail(toEmail, subjectText, htmlContent) {
+async function initGmailTransporter() {
   try {
-    const info = await transporter.sendMail({
-      from: `"NexaSPC Auth" <${process.env.SMTP_USER}>`,
-      to: toEmail,
-      subject: subjectText,
-      html: htmlContent
+    // Resolve smtp.gmail.com explicitly to an IPv4 address string (e.g. 142.250.x.x)
+    const addresses = await new Promise((resolve, reject) => {
+      dns.resolve4('smtp.gmail.com', (err, addrs) => {
+        if (err) reject(err);
+        else resolve(addrs);
+      });
     });
 
-    console.log(`[GMAIL SMTP] Email successfully sent to ${toEmail} | ID: ${info.messageId}`);
-    return info;
-  } catch (error) {
-    console.error(`[GMAIL SMTP] Failed to deliver to ${toEmail}:`, error.message);
-    throw error;
+    const ipv4Host = addresses[0]; // Grab the first valid IPv4 address
+    console.log(`[GMAIL SMTP] Resolved IPv4 host: ${ipv4Host}`);
+
+    transporter = nodemailer.createTransport({
+      host: ipv4Host,
+      port: 587,
+      secure: false, // STARTTLS
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS
+      },
+      tls: {
+        // Required when connecting directly to an IP address instead of domain name
+        servername: 'smtp.gmail.com', 
+        rejectUnauthorized: false
+      },
+      connectionTimeout: 15000
+    });
+
+    // Test handshake
+    transporter.verify((error) => {
+      if (error) {
+        console.error('[GMAIL SMTP] Verify Failed:', error.message);
+      } else {
+        console.log('[GMAIL SMTP] Connected and ready over IPv4 ✓');
+      }
+    });
+
+  } catch (err) {
+    console.error('[GMAIL SMTP] Could not resolve IPv4 for Gmail:', err.message);
   }
+}
+
+// Call initialization
+initGmailTransporter();
+
+async function sendEmail(toEmail, subjectText, htmlContent) {
+  if (!transporter) {
+    throw new Error('Email transporter is not initialized yet.');
+  }
+
+  const info = await transporter.sendMail({
+    from: `"NexaSPC Auth" <${process.env.SMTP_USER}>`,
+    to: toEmail,
+    subject: subjectText,
+    html: htmlContent
+  });
+
+  console.log(`[GMAIL SMTP] Email delivered to ${toEmail} | ID: ${info.messageId}`);
+  return info;
 }
 
 // ─── ADMIN / NOTIFICATION HELPERS ─────────────────────────────\
