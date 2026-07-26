@@ -75,8 +75,6 @@ async function sendSms(phone, message) {
   // await twilio.messages.create({ body: message, from: process.env.TWILIO_FROM, to: phone });
 }
 
-const { google } = require('googleapis');
-
 // ─── GMAIL API OAUTH2 SETUP ───
 const OAuth2 = google.auth.OAuth2;
 
