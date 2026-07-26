@@ -9,6 +9,7 @@ const bodyParser = require('body-parser');
 const path = require('path');
 const {Resend} = require('resend');
 const nodemailer = require('nodemailer');
+const { google } = require('googleapis');
 
 const dotenv = require('dotenv');
 dotenv.config();
@@ -74,6 +75,49 @@ async function sendSms(phone, message) {
   // await twilio.messages.create({ body: message, from: process.env.TWILIO_FROM, to: phone });
 }
 
+const OAuth2 = google.auth.OAuth2;
+const oauth2Client = new OAuth2(
+  process.env.GMAIL_CLIENT_ID,
+  process.env.GMAIL_CLIENT_SECRET,
+  "https://developers.google.com/oauthplayground"
+);
+
+oauth2Client.setCredentials({
+  refresh_token: process.env.GMAIL_REFRESH_TOKEN
+});
+
+async function sendEmailViaGmailAPI(toEmail, subjectText, htmlContent) {
+  try {
+    const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+    
+    // Construct Raw Email String
+    const str = [
+      `To: ${toEmail}`,
+      'Content-Type: text/html; charset=utf-8',
+      'MIME-Version: 1.0',
+      `Subject: ${subjectText}`,
+      '',
+      htmlContent
+    ].join('\n');
+
+    const encodedMessage = Buffer.from(str)
+      .toString('base64')
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
+
+    const res = await gmail.users.messages.send({
+      userId: 'me',
+      requestBody: { raw: encodedMessage }
+    });
+
+    console.log(`[GMAIL API] Email sent to ${toEmail} ✓ ID:`, res.data.id);
+    return res.data;
+  } catch (error) {
+    console.error('[GMAIL API] Failed:', error.message);
+    throw error;
+  }
+}
 
 // ─── GMAIL SMTP TRANSPORTER (FORCE IPV4 + PORT 587) ───
 const dns = require('dns');
@@ -147,6 +191,7 @@ async function sendEmail(toEmail, subjectText, htmlContent) {
   console.log(`[GMAIL SMTP] Email delivered to ${toEmail} | ID: ${info.messageId}`);
   return info;
 }
+
 
 // ─── ADMIN / NOTIFICATION HELPERS ─────────────────────────────\
 function pushNotif(email, type, message, meta = {}) {
