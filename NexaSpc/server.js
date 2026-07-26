@@ -66,88 +66,6 @@ async function sendSms(phone, message) {
   // await twilio.messages.create({ body: message, from: process.env.TWILIO_FROM, to: phone });
 }
 
-// ─── EMAIL (optional, never crashes the server) ───────────────
-// let transporter = null;
-// if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
-//   try {
-//     const nodemailer = require('nodemailer');
-//     transporter = nodemailer.createTransport({
-//       host: process.env.SMTP_HOST,
-//       port: parseInt(process.env.SMTP_PORT || '587'),
-//       secure: false,
-//       auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
-//     });
-//     console.log('[EMAIL] SMTP configured ✓');
-//   } catch (e) { console.warn('[EMAIL] nodemailer not available:', e.message); }
-// } else {
-//   console.log('[EMAIL] No SMTP env vars — emails will be logged to console only.');
-// }
-
-// transporter = nodemailer.createTransport({
-//   host: process.env.SMTP_HOST || 'smtp.gmail.com',
-//   port: parseInt(process.env.SMTP_PORT || '465'),
-//   secure: true, // true for 465, false for other ports
-//   auth: { 
-//     user: process.env.SMTP_USER, 
-//     pass: process.env.SMTP_PASS 
-//   },
-//   family:4,
-//   // Add this block to fix the Render network bug:
-//   // tls: {
-//   //   rejectUnauthorized: false
-//   // },
-//   dnsTimeout: 10000 // Forces a cleaner lookup over standard network interfaces
-// });
-
-const dns = require('dns');
-
-if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
-  try {
-    const nodemailer = require('nodemailer');
-    transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST.trim(),
-      port: parseInt(process.env.SMTP_PORT || '465'),
-      secure: true, 
-      auth: {
-        user: process.env.SMTP_USER.trim(),
-        pass: process.env.SMTP_PASS.trim()
-      },
-      // 👇 THIS FORCE-PREVENTS ENETUNREACH BY BLOCKING ALL IPV6 LOOKUPS
-      lookup: (hostname, options, callback) => {
-        options.family = 4; // Explicitly restrict DNS lookup to IPv4 addresses only
-        dns.lookup(hostname, options, callback);
-      },
-      tls: {
-        rejectUnauthorized: false,
-        minVersion: 'TLSv1.2'
-      },
-      connectionTimeout: 15000
-    });
-    console.log('[EMAIL] IPv4 Forced Transporter initialized ✓');
-  } catch (e) { 
-    console.warn('[EMAIL] Nodemailer initialization failed:', e.message); 
-  }
-}
-
-const resend = new Resend(process.env.RESEND_API_KEY);
-
-async function sendEmail(toEmail, subjectText, htmlContent) {
-  try {
-    const data = await resend.emails.send({
-      from: 'onboarding@resend.dev', // Default testing domain provided by Resend
-      to: toEmail,
-      subject: subjectText,
-      html: htmlContent
-    });
-    
-    console.log(`[EMAIL] Verification code successfully routed to ${toEmail} via Resend ✓`, data);
-    return data;
-  } catch (error) {
-    console.error('[EMAIL] Resend SDK failed to transmit message:', error.message);
-    throw error; // Passes the error along so your route can handle it gracefully
-  }
-}
-
 // ─── SMS (optional stub) ──────────────────────────────────────
 async function sendSms(phone, message) {
   console.log(`\n[SMS → ${phone}]\n${message}\n`);
@@ -157,6 +75,57 @@ async function sendSms(phone, message) {
 }
 
 
+// ─── EMAIL (optional, never crashes the server) ───────────────
+const express = require('express');
+const nodemailer = require('nodemailer');
+const dns = require('dns');
+
+// ─── GMAIL SMTP TRANSPORTER (FORCE IPV4 + PORT 587) ───
+const transporter = nodemailer.createTransport({
+  host: 'smtp.gmail.com',
+  port: 587,
+  secure: false, // Must be false for port 587 (uses STARTTLS)
+  auth: {
+    user: process.env.GMAIL_USER,
+    pass: process.env.GMAIL_PASS
+  },
+  // 👇 CRITICAL: Bypasses Render's IPv6 blocking (Fixes ENETUNREACH)
+  lookup: (hostname, options, callback) => {
+    options.family = 4;
+    dns.lookup(hostname, options, callback);
+  },
+  tls: {
+    rejectUnauthorized: false // Prevents cloud SSL handshake drops
+  },
+  connectionTimeout: 15000,
+  greetingTimeout: 15000
+});
+
+// Verify Gmail SMTP Connection on Server Startup
+transporter.verify((error, success) => {
+  if (error) {
+    console.error('[GMAIL SMTP] Connection Failed:', error.message);
+  } else {
+    console.log('[GMAIL SMTP] Server is ready to send emails ✓');
+  }
+});
+
+async function sendEmail(toEmail, subjectText, htmlContent) {
+  try {
+    const info = await transporter.sendMail({
+      from: `"NexaSPC Auth" <${process.env.GMAIL_USER}>`,
+      to: toEmail,
+      subject: subjectText,
+      html: htmlContent
+    });
+
+    console.log(`[GMAIL SMTP] Email successfully sent to ${toEmail} | ID: ${info.messageId}`);
+    return info;
+  } catch (error) {
+    console.error(`[GMAIL SMTP] Failed to deliver to ${toEmail}:`, error.message);
+    throw error;
+  }
+}
 
 // ─── ADMIN / NOTIFICATION HELPERS ─────────────────────────────\
 function pushNotif(email, type, message, meta = {}) {
