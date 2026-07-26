@@ -1,11 +1,13 @@
 const mongoose = require('mongoose');
 
 const userSchema = new mongoose.Schema({
-  email: { type: String, required: true, unique: true },
+  username: { type: String, trim: true },
+  email: { type: String, required: true, unique: true, lowercase: true, trim: true },
+  phone: { type: String, default: '' },
   password: { type: String, required: true },
   walletBalance: { type: Number, default: 0 },
-  assets: [{ coin: String, amount: Number }]
+  assets: [{ coin: String, amount: Number }],
+  createdAt: { type: Date, default: Date.now }
 });
 
-// We "export" it so other files can use it
-module.exports = mongoose.model('User', userSchema);
+module.exports = mongoose.model('User', userSchema, 'users');

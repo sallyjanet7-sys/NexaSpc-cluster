@@ -27,7 +27,7 @@ mongoose.connect(mongoURI)
     .catch(err => console.error('❌ MongoDB Connection Error:', err));
 
 // Instead of writing the whole schema here, you just "require" it
-const user = require('../models/user'); 
+const User = require('../models/user'); 
 // Now you can use "User" in your routes as normal
 
 app.use(cors());
@@ -296,29 +296,30 @@ function isExpired(expiryTime) {
 //  STEP 2a — VERIFY EMAIL OTP
 //  POST /api/auth/verify-email
 // ══════════════════════════════════════════════════════════════
-app.post('/api/auth/verify', (req, res) => {
+app.post('/api/auth/verify', async (req, res) => {
   try {
     const { email, otp } = req.body;
-    if (!email || !otp) return res.status(400).json({ error: 'Email and OTP required.' });
+
+    if (!email || !otp) {
+      return res.status(400).json({ error: 'Email and OTP required.' });
+    }
 
     const pending = pendingUsers[email];
-    if (!pending) return res.status(400).json({ error: 'No pending registration found. Please start again.' });
+    if (!pending) {
+      return res.status(400).json({ error: 'No pending registration found. Please start again.' });
+    }
 
-    if (isExpired(pending.otpExpiry))
-      return res.status(400).json({ error: 'Code has expired. Please request a new one.' });
-
-    if (pending.otp !== otp.trim())
-      return res.status(400).json({ error: 'Incorrect code. Please check and try again.' });
-
+    // 1. Expiry Check
     if (pending.otpExpiry) {
       const now = new Date();
       const expiry = new Date(pending.otpExpiry);
       if (now > expiry) {
+        delete pendingUsers[email];
         return res.status(400).json({ error: 'Code has expired. Please request a new one.' });
       }
     }
 
-    // FIX 2: Safely convert both values to strings before evaluating to prevent .trim() crashes
+    // 2. Validate OTP
     const safeInputOtp = String(otp).trim();
     const safeServerOtp = String(pending.otp).trim();
 
@@ -326,13 +327,90 @@ app.post('/api/auth/verify', (req, res) => {
       return res.status(400).json({ error: 'Incorrect code. Please check and try again.' });
     }
 
-    pending.verified = true;
-    return res.json({ success: true, message: 'Code verified!' });
+    // 3. Save to MongoDB (Uses `pending.hashedPassword`)
+    const newUser = new User({
+      username: pending.username || '',
+      email: pending.email.toLowerCase().trim(),
+      phone: pending.phone || '',
+      password: pending.hashedPassword, // <-- Mapped to your exact key
+      walletBalance: 0,
+      assets: []
+    });
+
+    const savedUser = await newUser.save();
+    console.log(`✅ [MONGO DB] User registered successfully! ID: ${savedUser._id} in collection: ${User.collection.name}`);
+
+    // Clean up temporary in-memory record
+    delete pendingUsers[email];
+
+    return res.status(200).json({ 
+      success: true, 
+      message: 'Account verified and registered successfully!' 
+    });
+
   } catch (err) {
-    console.error('[/api/auth/verify] CRITICAL EXCEPTION:', err);
-    return res.status(500).json({ error: 'Server error.' });
+    console.error('❌ [/api/auth/verify] CRITICAL EXCEPTION:', err);
+    return res.status(500).json({ error: err.message || 'Server error verifying registration.' });
   }
 });
+
+// app.post('/api/auth/verify', (req, res) => {
+//   try {
+//     const { email, otp } = req.body;
+//     if (!email || !otp) return res.status(400).json({ error: 'Email and OTP required.' });
+
+//     const pending = pendingUsers[email];
+//     if (!pending) return res.status(400).json({ error: 'No pending registration found. Please start again.' });
+
+//     if (isExpired(pending.otpExpiry))
+//       return res.status(400).json({ error: 'Code has expired. Please request a new one.' });
+
+//     if (pending.otp !== otp.trim())
+//       return res.status(400).json({ error: 'Incorrect code. Please check and try again.' });
+
+//     if (pending.otpExpiry) {
+//       const now = new Date();
+//       const expiry = new Date(pending.otpExpiry);
+//       if (now > expiry) {
+//         return res.status(400).json({ error: 'Code has expired. Please request a new one.' });
+//       }
+//     }
+
+//     // FIX 2: Safely convert both values to strings before evaluating to prevent .trim() crashes
+//     const safeInputOtp = String(otp).trim();
+//     const safeServerOtp = String(pending.otp).trim();
+
+//     if (safeServerOtp !== safeInputOtp) {
+//       return res.status(400).json({ error: 'Incorrect code. Please check and try again.' });
+//     }
+
+//     pending.verified = true;
+//     return res.json({ success: true, message: 'Code verified!' });
+//   } catch (err) {
+//     console.error('[/api/auth/verify] CRITICAL EXCEPTION:', err);
+//     return res.status(500).json({ error: 'Server error.' });
+//   }
+
+//   try {
+//     // ... OTP verification logic ...
+
+//     const newUser = new User({
+//       email: email,
+//       password: hashedPassword,
+//       isVerified: true
+//     });
+
+//     const savedUser = await newUser.save();
+    
+//     // Add this log to confirm the write:
+//     console.log('✅ User saved to DB:', savedUser._id, 'in collection:', User.collection.name);
+
+//     return res.status(200).json({ success: true, message: 'User registered!' });
+//   } catch (err) {
+//     console.error('❌ Failed to save user to MongoDB:', err);
+//     return res.status(500).json({ error: err.message });
+//   }
+// });
  
 // ══════════════════════════════════════════════════════════════
 //  STEP 3 — COMPLETE REGISTRATION
