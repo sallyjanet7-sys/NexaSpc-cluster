@@ -76,8 +76,6 @@ async function sendSms(phone, message) {
 
 
 // ─── EMAIL (optional, never crashes the server) ───────────────
-const express = require('express');
-const nodemailer = require('nodemailer');
 const dns = require('dns');
 
 // ─── GMAIL SMTP TRANSPORTER (FORCE IPV4 + PORT 587) ───
@@ -86,8 +84,8 @@ const transporter = nodemailer.createTransport({
   port: 587,
   secure: false, // Must be false for port 587 (uses STARTTLS)
   auth: {
-    user: process.env.GMAIL_USER,
-    pass: process.env.GMAIL_PASS
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS
   },
   // 👇 CRITICAL: Bypasses Render's IPv6 blocking (Fixes ENETUNREACH)
   lookup: (hostname, options, callback) => {
@@ -113,7 +111,7 @@ transporter.verify((error, success) => {
 async function sendEmail(toEmail, subjectText, htmlContent) {
   try {
     const info = await transporter.sendMail({
-      from: `"NexaSPC Auth" <${process.env.GMAIL_USER}>`,
+      from: `"NexaSPC Auth" <${process.env.SMTP_USER}>`,
       to: toEmail,
       subject: subjectText,
       html: htmlContent
