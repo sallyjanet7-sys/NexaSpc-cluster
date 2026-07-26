@@ -75,24 +75,37 @@ async function sendSms(phone, message) {
   // await twilio.messages.create({ body: message, from: process.env.TWILIO_FROM, to: phone });
 }
 
-// ─── 1. GMAIL API OAUTH2 CLIENT CONFIG ───
+const { google } = require('googleapis');
 
+// ─── GMAIL API OAUTH2 SETUP ───
 const OAuth2 = google.auth.OAuth2;
-const oauth2Client = new OAuth2(
-  process.env.GMAIL_CLIENT_ID,
-  process.env.GMAIL_CLIENT_SECRET,
-  "https://developers.google.com/oauthplayground"
-);
 
-oauth2Client.setCredentials({
-  refresh_token: process.env.GMAIL_REFRESH_TOKEN
-});
+function getOAuth2Client() {
+  const oauth2Client = new OAuth2(
+    process.env.GMAIL_CLIENT_ID,
+    process.env.GMAIL_CLIENT_SECRET,
+    "https://developers.google.com/oauthplayground"
+  );
 
-const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+  const refreshToken = process.env.GMAIL_REFRESH_TOKEN;
 
-// ─── 2. THE MISSING FUNCTION DEFINITION ───
+  if (!refreshToken) {
+    throw new Error('GMAIL_REFRESH_TOKEN is missing in environment variables!');
+  }
+
+  oauth2Client.setCredentials({
+    refresh_token: refreshToken
+  });
+
+  return oauth2Client;
+}
+
+// ─── SEND EMAIL VIA HTTPS ───
 async function sendEmail(toEmail, subjectText, htmlContent) {
   try {
+    const auth = getOAuth2Client();
+    const gmail = google.gmail({ version: 'v1', auth });
+
     const utf8Subject = `=?utf-8?B?${Buffer.from(subjectText).toString('base64')}?=`;
     const messageParts = [
       `From: NexaSPC Auth <${process.env.GMAIL_USER}>`,
