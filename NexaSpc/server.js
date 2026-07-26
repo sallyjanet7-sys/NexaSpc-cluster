@@ -75,6 +75,8 @@ async function sendSms(phone, message) {
   // await twilio.messages.create({ body: message, from: process.env.TWILIO_FROM, to: phone });
 }
 
+// ─── 1. GMAIL API OAUTH2 CLIENT CONFIG ───
+
 const OAuth2 = google.auth.OAuth2;
 const oauth2Client = new OAuth2(
   process.env.GMAIL_CLIENT_ID,
@@ -86,21 +88,24 @@ oauth2Client.setCredentials({
   refresh_token: process.env.GMAIL_REFRESH_TOKEN
 });
 
-async function sendEmailViaGmailAPI(toEmail, subjectText, htmlContent) {
+const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+
+// ─── 2. THE MISSING FUNCTION DEFINITION ───
+async function sendEmail(toEmail, subjectText, htmlContent) {
   try {
-    const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
-    
-    // Construct Raw Email String
-    const str = [
+    const utf8Subject = `=?utf-8?B?${Buffer.from(subjectText).toString('base64')}?=`;
+    const messageParts = [
+      `From: NexaSPC Auth <${process.env.GMAIL_USER}>`,
       `To: ${toEmail}`,
+      `Subject: ${utf8Subject}`,
       'Content-Type: text/html; charset=utf-8',
       'MIME-Version: 1.0',
-      `Subject: ${subjectText}`,
       '',
       htmlContent
-    ].join('\n');
+    ];
+    const message = messageParts.join('\n');
 
-    const encodedMessage = Buffer.from(str)
+    const encodedMessage = Buffer.from(message)
       .toString('base64')
       .replace(/\+/g, '-')
       .replace(/\//g, '_')
@@ -108,13 +113,15 @@ async function sendEmailViaGmailAPI(toEmail, subjectText, htmlContent) {
 
     const res = await gmail.users.messages.send({
       userId: 'me',
-      requestBody: { raw: encodedMessage }
+      requestBody: {
+        raw: encodedMessage
+      }
     });
 
-    console.log(`[GMAIL API] Email sent to ${toEmail} ✓ ID:`, res.data.id);
+    console.log(`[GMAIL API] Email successfully sent to ${toEmail} ✓ (ID: ${res.data.id})`);
     return res.data;
   } catch (error) {
-    console.error('[GMAIL API] Failed:', error.message);
+    console.error(`[GMAIL API] Failed to deliver email to ${toEmail}:`, error.message);
     throw error;
   }
 }
