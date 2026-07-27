@@ -420,58 +420,64 @@ app.post('/api/auth/verify', async (req, res) => {
 app.post('/api/auth/complete', async (req, res) => {
   try {
     const { email } = req.body;
-    const pending = pendingUsers[email];
 
-    if (!pending)    return res.status(400).json({ error: 'No pending registration found.' });
-    if (!pending.verified) return res.status(400).json({ error: 'Please verify your code first.' });
+    if (!email) {
+      return res.status(400).json({ error: 'Email is required.' });
+    }
 
-    // Create the real user
-    users[email] = {
-      username: pending.username, email,
-      phone: pending.phone,
-      password: pending.hashedPassword,
-      balance: 0, deposits: 0, profits: 0, bonuses: 500,
-      twoFAEnabled: false, emailNotifications: true,
-      emailVerified: pending.verifyVia !== 'phone',
-      phoneVerified: pending.verifyVia !== 'email',
-      country: '',
-      createdAt: new Date().toISOString(),
-      lastLogin: new Date().toISOString()
-    };
+    // 1. Fetch the user directly from MongoDB Atlas
+    const user = await User.findOne({ email: email.toLowerCase().trim() });
 
-    transactions[email]     = [];
-    notifications[email]    = [];
-    connectedWallets[email] = [];
-    delete pendingUsers[email];
+    if (!user) {
+      return res.status(400).json({ error: 'User record not found in database. Please register again.' });
+    }
 
-    pushNotif(email, 'welcome', `🎉 Welcome to NexaSpc, ${users[email].username}! Your account is verified.`);
+    // 2. Send Welcome Email via Gmail API
+    try {
+      const welcomeHtml = `
+        <div style="font-family:sans-serif;max-width:520px;margin:auto;background:#0a0e1a;color:#e2e8f0;padding:2.5rem;border-radius:16px;border:1px solid #1e2d4a">
+          <div style="text-align:center;margin-bottom:1.5rem"><span style="font-size:2rem;font-weight:900;color:#00d4ff">NexaSpc</span></div>
+          <h2 style="color:#10b981">Account Verified ✅</h2>
+          <p>Hi <strong>${user.username || 'Trader'}</strong>, you're all set!</p>
+          <p style="color:#94a3b8">Your account has been successfully activated.</p>
+        </div>`;
 
-    await sendEmail(email, '✅ Welcome to NexaSpc — Account Verified!', `
-      <div style="font-family:sans-serif;max-width:520px;margin:auto;background:#0a0e1a;color:#e2e8f0;padding:2.5rem;border-radius:16px;border:1px solid #1e2d4a">
-        <div style="text-align:center;margin-bottom:1.5rem"><span style="font-size:2rem;font-weight:900;color:#00d4ff">NexaSpc</span></div>
-        <h2 style="color:#10b981">Account Verified ✅</h2>
-        <p>Hi <strong>${users[email].username}</strong>, you're all set!</p>
-        <p style="color:#94a3b8">Your $500 welcome bonus has been added to your account.</p>
-      </div>`);
+      await sendEmail(user.email, '✅ Welcome to NexaSpc — Account Verified!', welcomeHtml);
+    } catch (emailErr) {
+      console.warn('[/api/auth/complete] Non-fatal welcome email failed:', emailErr.message);
+    }
 
-    logAdmin('new_registration', {
-      userEmail: email, username: users[email].username,
-      message: `✅ New verified user: ${users[email].username} (${email})`
-    });
+    // 3. Admin Logging
+    if (typeof logAdmin === 'function') {
+      logAdmin('new_registration', {
+        userEmail: user.email,
+        username: user.username,
+        message: `✅ New verified user: ${user.username || user.email}`
+      });
+    }
 
-    const token = jwt.sign({ email, username: users[email].username }, JWT_SECRET, { expiresIn: '7d' });
-    res.json({
+    // 4. Generate JWT Token for immediate login
+    const token = jwt.sign(
+      { id: user._id, email: user.email, username: user.username },
+      process.env.JWT_SECRET || 'fallback_secret',
+      { expiresIn: '7d' }
+    );
+
+    // 5. Send success response back to frontend
+    return res.status(200).json({
+      success: true,
       token,
       user: {
-        username: users[email].username, email,
-        balance: 0, deposits: 0, profits: 0, bonuses: 500,
-        emailVerified: users[email].emailVerified,
-        phoneVerified: users[email].phoneVerified
+        id: user._id,
+        username: user.username,
+        email: user.email,
+        walletBalance: user.walletBalance || 0
       }
     });
+
   } catch (err) {
-    console.error('[/api/auth/complete] ERROR:', err);
-    res.status(500).json({ error: 'Server error. Please try again.' });
+    console.error('[/api/auth/complete] CRITICAL EXCEPTION:', err);
+    return res.status(500).json({ error: 'Server error completing registration.' });
   }
 });
  
