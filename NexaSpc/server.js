@@ -46,7 +46,7 @@ const adminLog = [];
 // pendingUsers[email] = { username, email, hashedPassword, phone, emailOtp, phoneOtp, emailOtpExpiry, phoneOtpExpiry, emailVerified, phoneVerified }
 const pendingUsers = {};
 
-const Transaction = require('./models/transaction');
+const Transaction = require('../models/transaction');
 
 // ─── OTP HELPERS ──────────────────────────────────────────────
 function generateOtp() {
