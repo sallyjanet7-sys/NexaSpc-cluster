@@ -525,45 +525,80 @@ app.post('/api/auth/resend', async (req, res) => {
 //  LOGIN  (unchanged but now checks verified status)
 // ══════════════════════════════════════════════════════════════
 app.post('/api/login', async (req, res) => {
-  const { email, password } = req.body;
- 
-  // Check if stuck in pending
-  if (pendingUsers[email])
-    return res.status(400).json({
-      error: 'Account not fully verified. Please complete email and phone verification.',
-      pending: true
-    });
- 
-  const user = users[email];
-  if (!user) return res.status(400).json({ error: 'Invalid credentials' });
- 
-  const match = await bcrypt.compare(password, user.password);
-  if (!match) return res.status(400).json({ error: 'Invalid credentials' });
- 
-  user.lastLogin = new Date().toISOString();
- 
-  pushNotif(email, 'login', `New login to your account at ${new Date().toLocaleString()}.`);
-  await sendEmail(email, '🔐 NexaSpc Login Alert', `
-    <div style="font-family:sans-serif;max-width:520px;margin:auto;background:#0a0e1a;color:#e2e8f0;padding:2.5rem;border-radius:16px">
-      <h2 style="color:#00d4ff">Login Detected</h2>
-      <p>Hi <strong>${user.username}</strong>, a login was made to your NexaSpc account.</p>
-      <p style="color:#94a3b8"><strong>Time:</strong> ${new Date().toUTCString()}</p>
-      <p style="color:#ef4444;margin-top:1rem">⚠️ Not you? Change your password immediately and contact support.</p>
-    </div>`);
- 
-  logAdmin('login', { userEmail: email, username: user.username, message: `Login: ${user.username}` });
- 
-  const token = jwt.sign({ email, username: user.username }, JWT_SECRET, { expiresIn: '7d' });
-  res.json({
-    token,
-    user: {
-      username: user.username, email,
-      balance: user.balance, deposits: user.deposits,
-      profits: user.profits, bonuses: user.bonuses,
-      emailVerified: user.emailVerified,
-      phoneVerified: user.phoneVerified
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Please provide both email and password.' });
     }
-  });
+
+    const cleanEmail = email.toLowerCase().trim();
+
+    // 1. Fetch user directly from MongoDB Atlas
+    const user = await User.findOne({ email: cleanEmail });
+
+    if (!user) {
+      console.log(`[LOGIN FAILED] No MongoDB record found for: ${cleanEmail}`);
+      return res.status(400).json({ error: 'Invalid credentials' });
+    }
+
+    // 2. Compare incoming plain-text password with stored bcrypt hash
+    const match = await bcrypt.compare(password, user.password);
+
+    if (!match) {
+      console.log(`[LOGIN FAILED] Password mismatch for user: ${cleanEmail}`);
+      return res.status(400).json({ error: 'Invalid credentials' });
+    }
+
+    // 3. Update last login timestamp in MongoDB
+    user.lastLogin = new Date();
+    await user.save();
+
+    // 4. Send Login Alert Email (Non-blocking fallback)
+    try {
+      const loginHtml = `
+        <div style="font-family:sans-serif;max-width:520px;margin:auto;background:#0a0e1a;color:#e2e8f0;padding:2.5rem;border-radius:16px;border:1px solid #1e2d4a">
+          <div style="text-align:center;margin-bottom:1.5rem"><span style="font-size:2rem;font-weight:900;color:#00d4ff">NexaSpc</span></div>
+          <h2 style="color:#00d4ff">Login Detected 🔐</h2>
+          <p>Hi <strong>${user.username || user.email}</strong>, a new login was detected on your account.</p>
+          <p style="color:#94a3b8"><strong>Time:</strong> ${new Date().toUTCString()}</p>
+          <p style="color:#ef4444;margin-top:1rem">⚠️ If this wasn't you, please secure your account immediately.</p>
+        </div>`;
+
+      await sendEmail(user.email, '🔐 NexaSpc Login Alert', loginHtml);
+    } catch (emailErr) {
+      console.warn('[/api/login] Login alert email notification warning:', emailErr.message);
+    }
+
+    // 5. Push admin logs (if function exists)
+    if (typeof logAdmin === 'function') {
+      logAdmin('login', { userEmail: user.email, username: user.username, message: `Login: ${user.username || user.email}` });
+    }
+
+    // 6. Generate JWT Token
+    const token = jwt.sign(
+      { id: user._id, email: user.email, username: user.username },
+      process.env.JWT_SECRET || 'fallback_secret',
+      { expiresIn: '7d' }
+    );
+
+    // 7. Return user state for frontend storage
+    return res.status(200).json({
+      success: true,
+      token,
+      user: {
+        id: user._id,
+        username: user.username || '',
+        email: user.email,
+        walletBalance: user.walletBalance || 0,
+        assets: user.assets || []
+      }
+    });
+
+  } catch (err) {
+    console.error('[/api/login] CRITICAL EXCEPTION:', err);
+    return res.status(500).json({ error: 'Server error during login. Please try again.' });
+  }
 });
  
 // ─── PROFILE ──────────────────────────────────────────────────
