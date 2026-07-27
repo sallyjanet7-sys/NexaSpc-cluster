@@ -943,74 +943,39 @@ app.post('/api/deposit', authMiddleware, async (req, res) => {
     }
 
     const email = req.user.email.toLowerCase().trim();
-    const profitBonus = amt * 0.05; // 5% bonus profit
-    const totalCredit = amt + profitBonus;
+    const user = await User.findOne({ email });
+    if (!user) return res.status(404).json({ error: 'User not found' });
 
-    // 1. Atomically update user balance, deposits, and profits in MongoDB Atlas
-    const user = await User.findOneAndUpdate(
-      { email },
-      {
-        $inc: {
-          walletBalance: totalCredit,
-          deposits: amt,
-          profits: profitBonus
-        }
-      },
-      { new: true } // Return the updated document
-    );
-
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    // 2. Create transaction record
-    const tx = {
-      id: Date.now(),
+    // Save as PENDING transaction (Does NOT update balance yet)
+    const tx = await Transaction.create({
+      userId: user._id,
+      userEmail: email,
       type: 'deposit',
-      coin,
+      coin: coin.toUpperCase(),
       amount: amt,
-      txHash: txHash || 'pending',
-      status: 'completed',
-      date: new Date().toISOString()
-    };
-
-    // If you have a Transaction model or array in User model, save it:
-    if (Array.isArray(user.transactions)) {
-      user.transactions.push(tx);
-      await user.save();
-    }
-
-    // 3. Trigger notifications and logs safely
-    if (typeof pushNotif === 'function') {
-      pushNotif(email, 'deposit', `Deposit of $${amt.toFixed(2)} (${coin}) confirmed.`);
-    }
-
-    if (typeof sendEmail === 'function') {
-      sendEmail(
-        email,
-        '✅ Deposit Confirmed - NexaSpc',
-        `<div style="font-family:sans-serif;background:#0a0e1a;color:#e2e8f0;padding:2rem;border-radius:12px;max-width:500px;margin:auto">
-          <h2 style="color:#10b981">Deposit Confirmed</h2>
-          <p>Amount: $${amt.toFixed(2)} (${coin})</p>
-          <p>New Balance: $${user.walletBalance.toFixed(2)}</p>
-        </div>`
-      ).catch(err => console.warn('Email send warning:', err.message));
-    }
-
-    if (typeof logAdmin === 'function') {
-      logAdmin('deposit', { userEmail: email, username: user.username, message: `Deposit $${amt} (${coin}) by ${user.username}` });
-    }
-
-    // 4. Return updated metrics matching frontend expected fields
-    return res.json({
-      success: true,
-      transaction: tx,
-      balance: user.walletBalance,
-      deposits: user.deposits,
-      profits: user.profits,
-      bonuses: user.bonuses
+      txHash: txHash || '0x' + Math.random().toString(36).substring(2, 10),
+      status: 'pending'
     });
 
+    // Optional: Auto-approve after 5 minutes (300,000 ms)
+    setTimeout(async () => {
+      try {
+        const pendingTx = await Transaction.findById(tx._id);
+        if (pendingTx && pendingTx.status === 'pending') {
+          pendingTx.status = 'completed';
+          await pendingTx.save();
+          await creditUserDeposit(user._id, pendingTx.coin, pendingTx.amount);
+        }
+      } catch (e) {
+        console.error('Auto-confirm error:', e);
+      }
+    }, 300000);
+
+    return res.json({
+      success: true,
+      message: 'Deposit submitted! Processing takes 3-12 minutes.',
+      transaction: tx
+    });
   } catch (err) {
     console.error('[/api/deposit] ERROR:', err);
     return res.status(500).json({ error: 'Server error processing deposit.' });
@@ -1049,32 +1014,19 @@ app.post('/api/withdraw', authMiddleware, (req, res) => {
 app.post('/api/admin/update-balance', adminMiddleware, async (req, res) => {
   try {
     const { targetEmail, newBalance, newDeposits, newProfits, resetHoldings } = req.body;
-
     const user = await User.findOne({ email: targetEmail.toLowerCase().trim() });
-    if (!user) return res.status(404).json({ error: 'Target user not found' });
+    
+    if (!user) return res.status(404).json({ error: 'User not found' });
 
     if (newBalance !== undefined) user.walletBalance = parseFloat(newBalance);
     if (newDeposits !== undefined) user.deposits = parseFloat(newDeposits);
     if (newProfits !== undefined) user.profits = parseFloat(newProfits);
-
-    if (resetHoldings) {
-      user.holdings = []; // Empties all holdings back to 0
-    }
+    if (resetHoldings) user.holdings = [];
 
     await user.save();
-
-    return res.json({
-      success: true,
-      message: `Updated balance for ${user.email}`,
-      user: {
-        walletBalance: user.walletBalance,
-        deposits: user.deposits,
-        profits: user.profits,
-        holdings: user.holdings
-      }
-    });
+    return res.json({ success: true, message: `Updated balance for ${user.email}`, user });
   } catch (err) {
-    return res.status(500).json({ error: 'Admin override error' });
+    return res.status(500).json({ error: 'Admin balance override failed.' });
   }
 });
  
@@ -1142,11 +1094,11 @@ async function creditUserDeposit(userId, coin, amount) {
   const user = await User.findById(userId);
   if (!user) return;
 
-  user.walletBalance += totalCredit;
-  user.deposits += amount;
-  user.profits += profitBonus;
+  user.walletBalance = (user.walletBalance || 0) + totalCredit;
+  user.deposits = (user.deposits || 0) + amount;
+  user.profits = (user.profits || 0) + profitBonus;
 
-  // Find or create holding entry for this coin
+  if (!Array.isArray(user.holdings)) user.holdings = [];
   let holding = user.holdings.find(h => h.coin === coin);
   if (holding) {
     holding.amount += amount;
@@ -1158,21 +1110,21 @@ async function creditUserDeposit(userId, coin, amount) {
   await user.save();
 }
 
-app.get('/api/transactions', authMiddleware, (req, res) => {
-  res.json([...(transactions[req.user.email] || [])].reverse());
-});
+// app.get('/api/transactions', authMiddleware, (req, res) => {
+//   res.json([...(transactions[req.user.email] || [])].reverse());
+// });
 
 // GET /api/transactions - Fetch history for current user
 app.get('/api/transactions', authMiddleware, async (req, res) => {
   try {
     const txs = await Transaction.find({ userEmail: req.user.email.toLowerCase().trim() })
-      .sort({ createdAt: -1 }); // Newest first
-
+      .sort({ createdAt: -1 });
     return res.json({ success: true, transactions: txs });
   } catch (err) {
-    return res.status(500).json({ error: 'Failed to fetch transaction history' });
+    return res.status(500).json({ error: 'Failed to fetch transactions.' });
   }
 });
+
 // ─── MARKETS ──────────────────────────────────────────────────
 app.get('/api/markets', (req, res) => res.json([
   { symbol: 'BTC/USDT',  price: 67842.50, change:  2.34, volume: '24.5B' },

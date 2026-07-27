@@ -490,23 +490,27 @@ async function loadDashboard() {
   }
 }
 
+// 2. Render Holdings Breakdown
 function renderHoldings(holdings) {
   const container = document.getElementById('holdings-list');
   if (!container) return;
 
-  if (holdings.length === 0) {
-    container.innerHTML = `<div class="empty-state">No active crypto holdings yet.</div>`;
+  if (!holdings || holdings.length === 0) {
+    container.innerHTML = `
+      <div style="text-align:center;color:var(--text3);padding:1.5rem;font-size:0.875rem;">
+        No active crypto holdings yet. <a href="#" onclick="navigate('deposit')" style="color:var(--accent);">Make a deposit →</a>
+      </div>`;
     return;
   }
 
   container.innerHTML = holdings.map(h => `
-    <div class="holding-card" style="display:flex; justify-between; padding: 12px; background: #121929; margin-bottom: 8px; border-radius: 8px;">
-      <div style="display:flex; align-items:center; gap:10px;">
-        <strong>${h.coin}</strong>
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:0.75rem 1rem;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:8px;margin-bottom:0.5rem;">
+      <div style="display:flex;align-items:center;gap:0.75rem;">
+        <strong style="font-size:1rem;">${h.coin}</strong>
       </div>
-      <div>
-        <div>${fmt(h.amount)} ${h.coin}</div>
-        <small style="color:#94a3b8;">~$${fmt(h.usdValue)} USD</small>
+      <div style="text-align:right;">
+        <div style="font-weight:600;">${fmt(h.amount)} ${h.coin}</div>
+        <div style="color:var(--text3);font-size:0.75rem;">~$${fmt(h.usdValue || h.amount)} USD</div>
       </div>
     </div>
   `).join('');
@@ -610,24 +614,15 @@ function copyAddress() {
   });
 }
 
+// FEATURE 1: Submit Deposit
 async function handleDeposit(e) {
   e.preventDefault();
+  if (!state.selectedCoin) { toast('Select a coin first', 'error'); return; }
 
-  if (!state.selectedCoin) {
-    toast('Select a coin first', 'error');
-    return;
-  }
+  const amount = parseFloat(document.getElementById('deposit-amount')?.value);
+  const txHash = document.getElementById('deposit-txhash')?.value || '';
 
-  const amountEl = document.getElementById('deposit-amount');
-  const txHashEl = document.getElementById('deposit-txhash');
-
-  const amount = parseFloat(amountEl?.value);
-  const txHash = txHashEl ? txHashEl.value.trim() : '';
-
-  if (!amount || amount <= 0) {
-    toast('Enter a valid amount', 'error');
-    return;
-  }
+  if (!amount || amount <= 0) { toast('Enter a valid amount', 'error'); return; }
 
   try {
     const data = await api('/deposit', {
@@ -636,30 +631,90 @@ async function handleDeposit(e) {
     });
 
     if (data.success) {
-      // 1. Update state object with fresh values from backend
-      state.user.balance = data.balance;
-      state.user.deposits = data.deposits;
-      state.user.profits = data.profits;
-
-      // 2. Persist updated user state to localStorage
-      localStorage.setItem('nsx_user', JSON.stringify(state.user));
-
-      toast(`Deposit of $${amount} confirmed!`);
-
-      // 3. Reset UI inputs
+      toast('Deposit pending! Confirmation takes 3-12 minutes.', 'info');
       document.getElementById('deposit-form')?.reset();
-      const walletDisplay = document.getElementById('wallet-display');
-      if (walletDisplay) walletDisplay.style.display = 'none';
-
       state.selectedCoin = null;
       document.querySelectorAll('.coin-card').forEach(c => c.classList.remove('selected'));
-
-      // 4. Redirect straight to dashboard
-      setTimeout(() => navigate('dashboard'), 1000);
+      
+      // Reload history and dashboard
+      setTimeout(() => navigate('transactions'), 1500);
     }
   } catch (err) {
     toast(err.message || 'Deposit failed', 'error');
   }
+}
+
+// FEATURE 3: Render Holdings on Dashboard
+// 1. Load Dashboard
+async function loadDashboard() {
+  if (!state.user) { navigate('login'); return; }
+  try {
+    const user = await api('/profile');
+    state.user = { ...state.user, ...user };
+    localStorage.setItem('nsx_user', JSON.stringify(state.user));
+
+    // Dashboard Stat Cards
+    if (document.getElementById('dash-balance'))  document.getElementById('dash-balance').textContent  = '$' + fmt(user.balance || 0);
+    if (document.getElementById('dash-deposits')) document.getElementById('dash-deposits').textContent = '$' + fmt(user.deposits || 0);
+    if (document.getElementById('dash-profits'))  document.getElementById('dash-profits').textContent  = '$' + fmt(user.profits || 0);
+
+    // Render Holdings
+    renderHoldings(user.holdings || []);
+
+    // Load Recent Activity Preview (First 3 items)
+    loadRecentActivityPreview();
+  } catch (err) {
+    console.error('Failed to load dashboard:', err);
+  }
+}
+
+
+
+
+// 4. Render Dashboard Recent Activity Preview (#dash-tx-preview)
+async function loadRecentActivityPreview() {
+  const previewEl = document.getElementById('dash-tx-preview');
+  if (!previewEl) return;
+
+  try {
+    const data = await api('/transactions');
+    const txs = data.transactions || [];
+
+    if (txs.length === 0) {
+      previewEl.innerHTML = `No activity yet. <a href="#" onclick="navigate('deposit')" style="color:var(--accent)">Make your first deposit →</a>`;
+      return;
+    }
+
+    // Show only latest 3 transactions
+    previewEl.innerHTML = txs.slice(0, 3).map(tx => renderTxItem(tx)).join('');
+  } catch (err) {
+    console.error('Failed to load recent activity preview', err);
+  }
+}
+
+// Helper to format a single transaction card/row
+function renderTxItem(tx) {
+  const isPending = tx.status === 'pending';
+  const statusBadge = isPending 
+    ? `<span style="background:rgba(245,158,11,0.15);color:#f59e0b;padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:600;">PENDING</span>`
+    : tx.status === 'completed'
+    ? `<span style="background:rgba(16,185,129,0.15);color:#10b981;padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:600;">COMPLETED</span>`
+    : `<span style="background:rgba(239,68,68,0.15);color:#ef4444;padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:600;">FAILED</span>`;
+
+  const dateStr = new Date(tx.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+
+  return `
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:1rem;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.05);border-radius:8px;margin-bottom:0.75rem;">
+      <div>
+        <div style="font-weight:600;text-transform:capitalize;margin-bottom:0.25rem;">${tx.type} (${tx.coin})</div>
+        <div style="color:var(--text3);font-size:0.75rem;">${dateStr} • TX: ${tx.txHash.substring(0, 8)}...</div>
+      </div>
+      <div style="text-align:right;">
+        <div style="font-weight:700;margin-bottom:0.25rem;">+$${fmt(tx.amount)}</div>
+        ${statusBadge}
+      </div>
+    </div>
+  `;
 }
 
 // ── WITHDRAW ──
@@ -699,32 +754,26 @@ async function handleWithdraw(e) {
 
 // ── TRANSACTIONS ──
 async function loadTransactions() {
-  try {
-    const res = await api('/transactions');
-    const listEl = document.getElementById('transactions-list');
-    if (!listEl) return;
+  const listEl = document.getElementById('tx-list');
+  if (!listEl) return;
 
-    if (!res.transactions || res.transactions.length === 0) {
-      listEl.innerHTML = `<tr><td colspan="5" style="text-align:center;">No transactions found.</td></tr>`;
+  listEl.innerHTML = `<div style="text-align:center;color:var(--text3);padding:3rem">Loading…</div>`;
+
+  try {
+    const data = await api('/transactions');
+    const txs = data.transactions || [];
+
+    if (txs.length === 0) {
+      listEl.innerHTML = `
+        <div style="text-align:center;color:var(--text3);padding:3rem;">
+          No transactions yet. <a href="#" onclick="navigate('deposit')" style="color:var(--accent)">Make a deposit →</a>
+        </div>`;
       return;
     }
 
-    listEl.innerHTML = res.transactions.map(tx => {
-      const isPending = tx.status === 'pending';
-      const badgeClass = isPending ? 'badge-warning' : tx.status === 'completed' ? 'badge-success' : 'badge-danger';
-      
-      return `
-        <tr>
-          <td>${new Date(tx.createdAt).toLocaleDateString()} ${new Date(tx.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</td>
-          <td><strong style="text-transform:uppercase;">${tx.type}</strong> (${tx.coin})</td>
-          <td>$${fmt(tx.amount)}</td>
-          <td><small>${tx.txHash.substring(0, 10)}...</small></td>
-          <td><span class="badge ${badgeClass}" style="padding:4px 8px; border-radius:4px; font-size:12px;">${tx.status.toUpperCase()}</span></td>
-        </tr>
-      `;
-    }).join('');
+    listEl.innerHTML = txs.map(tx => renderTxItem(tx)).join('');
   } catch (err) {
-    console.error('Failed to load transactions', err);
+    listEl.innerHTML = `<div style="text-align:center;color:#ef4444;padding:2rem;">Failed to load transactions.</div>`;
   }
 }
 

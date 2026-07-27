@@ -452,6 +452,27 @@
   </div>
 </div>
 
+<!-- Crypto Holdings Card -->
+<div class="card" style="margin-bottom: 1.5rem;">
+  <div class="card-header" style="margin-bottom: 1rem;">Crypto Holdings</div>
+  <div id="holdings-list">
+    <div style="text-align:center;color:var(--text3);padding:1.5rem;font-size:0.875rem;">
+      No active crypto holdings yet. <a href="#" onclick="navigate('deposit')" style="color:var(--accent);">Make a deposit →</a>
+    </div>
+  </div>
+</div>
+
+<!-- Recent Activity preview -->
+<div class="card">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.25rem">
+    <div class="card-header" style="margin:0">Recent Activity</div>
+    <button class="btn btn-ghost btn-sm" onclick="navigate('transactions')">View All</button>
+  </div>
+  <div id="dash-tx-preview" style="color:var(--text3);font-size:0.875rem;text-align:center;padding:1.5rem">
+    No activity yet. <a href="#" onclick="navigate('deposit')" style="color:var(--accent)">Make your first deposit →</a>
+  </div>
+</div>
+
 <!-- ══════════════════════════════════════════
      PAGE: TRANSACTION HISTORY
 ══════════════════════════════════════════ -->
