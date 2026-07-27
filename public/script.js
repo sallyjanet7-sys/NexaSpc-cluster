@@ -584,22 +584,54 @@ function copyAddress() {
 
 async function handleDeposit(e) {
   e.preventDefault();
-  if (!state.selectedCoin) { toast('Select a coin first', 'error'); return; }
-  const amount = parseFloat(document.getElementById('deposit-amount').value);
-  const txHash = document.getElementById('deposit-txhash').value;
-  if (!amount || amount <= 0) { toast('Enter a valid amount', 'error'); return; }
+
+  if (!state.selectedCoin) {
+    toast('Select a coin first', 'error');
+    return;
+  }
+
+  const amountEl = document.getElementById('deposit-amount');
+  const txHashEl = document.getElementById('deposit-txhash');
+
+  const amount = parseFloat(amountEl?.value);
+  const txHash = txHashEl ? txHashEl.value.trim() : '';
+
+  if (!amount || amount <= 0) {
+    toast('Enter a valid amount', 'error');
+    return;
+  }
+
   try {
-    const data = await api('/deposit', { method: 'POST', body: JSON.stringify({ coin: state.selectedCoin, amount, txHash }) });
-    state.user.balance = data.balance;
-    state.user.deposits = data.deposits;
-    localStorage.setItem('nsx_user', JSON.stringify(state.user));
-    toast(`Deposit of $${amount} confirmed!`);
-    document.getElementById('deposit-form').reset();
-    document.getElementById('wallet-display').style.display = 'none';
-    state.selectedCoin = null;
-    document.querySelectorAll('.coin-card').forEach(c => c.classList.remove('selected'));
-    setTimeout(() => navigate('dashboard'), 1500);
-  } catch (err) { toast(err.message, 'error'); }
+    const data = await api('/deposit', {
+      method: 'POST',
+      body: JSON.stringify({ coin: state.selectedCoin, amount, txHash })
+    });
+
+    if (data.success) {
+      // 1. Update state object with fresh values from backend
+      state.user.balance = data.balance;
+      state.user.deposits = data.deposits;
+      state.user.profits = data.profits;
+
+      // 2. Persist updated user state to localStorage
+      localStorage.setItem('nsx_user', JSON.stringify(state.user));
+
+      toast(`Deposit of $${amount} confirmed!`);
+
+      // 3. Reset UI inputs
+      document.getElementById('deposit-form')?.reset();
+      const walletDisplay = document.getElementById('wallet-display');
+      if (walletDisplay) walletDisplay.style.display = 'none';
+
+      state.selectedCoin = null;
+      document.querySelectorAll('.coin-card').forEach(c => c.classList.remove('selected'));
+
+      // 4. Redirect straight to dashboard
+      setTimeout(() => navigate('dashboard'), 1000);
+    }
+  } catch (err) {
+    toast(err.message || 'Deposit failed', 'error');
+  }
 }
 
 // ── WITHDRAW ──

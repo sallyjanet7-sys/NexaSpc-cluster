@@ -931,21 +931,99 @@ app.delete('/api/wallet/connected/:id', authMiddleware, (req, res) => {
 });
  
 // ─── DEPOSIT ──────────────────────────────────────────────────
-app.post('/api/deposit', authMiddleware, (req, res) => {
-  const { coin, amount, txHash } = req.body;
-  if (!coin || !amount || amount <= 0) return res.status(400).json({ error: 'Invalid deposit data' });
-  const user = users[req.user.email];
-  const amt = parseFloat(amount);
-  user.deposits += amt;
-  user.balance  += amt;
-  user.profits  += amt * 0.05;
-  user.balance  += amt * 0.05;
-  const tx = { id: Date.now(), type: 'deposit', coin, amount: amt, txHash: txHash || 'pending', status: 'completed', date: new Date().toISOString() };
-  transactions[req.user.email].push(tx);
-  pushNotif(req.user.email, 'deposit', `Deposit of $${amt.toFixed(2)} (${coin}) confirmed.`);
-  sendEmail(req.user.email, '✅ Deposit Confirmed - NexaSpc', `<div style="font-family:sans-serif;background:#0a0e1a;color:#e2e8f0;padding:2rem;border-radius:12px;max-width:500px;margin:auto"><h2 style="color:#10b981">Deposit Confirmed</h2><p>Amount: $${amt.toFixed(2)} (${coin})</p><p>New Balance: $${user.balance.toFixed(2)}</p></div>`);
-  logAdmin('deposit', { userEmail: req.user.email, username: user.username, message: `Deposit $${amt} (${coin}) by ${user.username}` });
-  res.json({ success: true, transaction: tx, balance: user.balance, deposits: user.deposits, profits: user.profits });
+app.post('/api/deposit', authMiddleware, async (req, res) => {
+  try {
+    const { coin, amount, txHash } = req.body;
+    const amt = parseFloat(amount);
+
+    if (!coin || isNaN(amt) || amt <= 0) {
+      return res.status(400).json({ error: 'Invalid deposit data' });
+    }
+
+    const email = req.user.email.toLowerCase().trim();
+    const profitBonus = amt * 0.05; // 5% bonus profit
+    const totalCredit = amt + profitBonus;
+
+    // 1. Atomically update user balance, deposits, and profits in MongoDB Atlas
+    const user = await User.findOneAndUpdate(
+      { email },
+      {
+        $inc: {
+          walletBalance: totalCredit,
+          deposits: amt,
+          profits: profitBonus
+        }
+      },
+      { new: true } // Return the updated document
+    );
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // 2. Create transaction record
+    const tx = {
+      id: Date.now(),
+      type: 'deposit',
+      coin,
+      amount: amt,
+      txHash: txHash || 'pending',
+      status: 'completed',
+      date: new Date().toISOString()
+    };
+
+    // If you have a Transaction model or array in User model, save it:
+    if (Array.isArray(user.transactions)) {
+      user.transactions.push(tx);
+      await user.save();
+    }
+
+    // 3. Trigger notifications and logs safely
+    if (typeof pushNotif === 'function') {
+      pushNotif(email, 'deposit', `Deposit of $${amt.toFixed(2)} (${coin}) confirmed.`);
+    }
+
+    if (typeof sendEmail === 'function') {
+      sendEmail(
+        email,
+        '✅ Deposit Confirmed - NexaSpc',
+        `<div style="font-family:sans-serif;background:#0a0e1a;color:#e2e8f0;padding:2rem;border-radius:12px;max-width:500px;margin:auto">
+          <h2 style="color:#10b981">Deposit Confirmed</h2>
+          <p>Amount: $${amt.toFixed(2)} (${coin})</p>
+          <p>New Balance: $${user.walletBalance.toFixed(2)}</p>
+        </div>`
+      ).catch(err => console.warn('Email send warning:', err.message));
+    }
+
+    if (typeof logAdmin === 'function') {
+      logAdmin('deposit', { userEmail: email, username: user.username, message: `Deposit $${amt} (${coin}) by ${user.username}` });
+    }
+
+    // 4. Return updated metrics matching frontend expected fields
+    return res.json({
+      success: true,
+      transaction: tx,
+      balance: user.walletBalance,
+      deposits: user.deposits,
+      profits: user.profits,
+      bonuses: user.bonuses
+    });
+
+  } catch (err) {
+    console.error('[/api/deposit] ERROR:', err);
+    return res.status(500).json({ error: 'Server error processing deposit.' });
+  }
+});
+
+// Admin approval route
+app.post('/api/admin/approve-deposit', adminMiddleware, async (req, res) => {
+  const { userId, amount } = req.body;
+
+  await User.findByIdAndUpdate(userId, {
+    $inc: { walletBalance: amount, deposits: amount }
+  });
+
+  return res.json({ success: true, message: 'Deposit approved and balance credited.' });
 });
  
 // ─── WITHDRAW ─────────────────────────────────────────────────
