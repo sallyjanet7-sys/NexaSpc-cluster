@@ -334,6 +334,9 @@ app.post('/api/auth/verify', async (req, res) => {
       phone: pending.phone || '',
       password: pending.hashedPassword, // <-- Mapped to your exact key
       walletBalance: 0,
+      bonuses: 500, // 👈 Explicitly save $500 bonus
+      deposits: 0,
+      profits: 0,
       assets: []
     });
 
@@ -471,7 +474,10 @@ app.post('/api/auth/complete', async (req, res) => {
         id: user._id,
         username: user.username,
         email: user.email,
-        walletBalance: user.walletBalance || 0
+        walletBalance: user.walletBalance || 0,
+        bonuses: user.bonuses || 500, // 👈 Returned to frontend
+        deposits: user.deposits || 0,
+        profits: user.profits || 0
       }
     });
 
@@ -591,6 +597,9 @@ app.post('/api/login', async (req, res) => {
         username: user.username || '',
         email: user.email,
         walletBalance: user.walletBalance || 0,
+        bonuses: user.bonuses || 500, // 👈 Returned to frontend
+        deposits: user.deposits || 0,
+        profits: user.profits || 0,
         assets: user.assets || []
       }
     });

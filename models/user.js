@@ -6,6 +6,9 @@ const userSchema = new mongoose.Schema({
   phone: { type: String, default: '' },
   password: { type: String, required: true },
   walletBalance: { type: Number, default: 0 },
+  bonuses: { type: Number, default: 500 },
+  deposits: { type: Number, default: 0 },
+  profits: { type: Number, default: 0 },
   assets: [{ coin: String, amount: Number }],
   createdAt: { type: Date, default: Date.now }
 });
