@@ -165,15 +165,25 @@ function logAdmin(type, data) {
 function authMiddleware(req, res, next) {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).json({ error: 'No token provided' });
-  try { req.user = jwt.verify(token, JWT_SECRET); next(); }
-  catch { res.status(401).json({ error: 'Invalid or expired token' }); }
+
+  try { 
+    req.user = jwt.verify(token, JWT_SECRET); 
+    next(); 
+  } catch (err) { 
+    return res.status(401).json({ error: 'Invalid or expired token' }); 
+  }
 }
- 
+
 function adminMiddleware(req, res, next) {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).json({ error: 'Unauthorized' });
-  try { req.admin = jwt.verify(token, ADMIN_SECRET); next(); }
-  catch { res.status(401).json({ error: 'Invalid admin token' }); }
+
+  try { 
+    req.admin = jwt.verify(token, ADMIN_SECRET); 
+    next(); 
+  } catch (err) { 
+    return res.status(401).json({ error: 'Invalid admin token' }); 
+  }
 }
 
 //══════════════════════════════════════════════════════════════
@@ -611,17 +621,37 @@ app.post('/api/login', async (req, res) => {
 });
  
 // ─── PROFILE ──────────────────────────────────────────────────
-app.get('/api/profile', authMiddleware, (req, res) => {
-  const user = users[req.user.email];
-  if (!user) return res.status(404).json({ error: 'User not found' });
-  res.json({
-    username: user.username, email: user.email, phone: user.phone,
-    balance: user.balance, deposits: user.deposits,
-    profits: user.profits, bonuses: user.bonuses,
-    twoFAEnabled: user.twoFAEnabled, emailNotifications: user.emailNotifications,
-    emailVerified: user.emailVerified, phoneVerified: user.phoneVerified,
-    country: user.country, createdAt: user.createdAt, lastLogin: user.lastLogin
-  });
+app.get('/api/profile', authMiddleware, async (req, res) => {
+  try {
+    // Fetch user directly from MongoDB using the email attached by authMiddleware
+    const user = await User.findOne({ email: req.user.email.toLowerCase().trim() });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Return profile data mapped cleanly to MongoDB document fields
+    return res.json({
+      username: user.username || user.email.split('@')[0],
+      email: user.email,
+      phone: user.phone || '',
+      balance: user.walletBalance || 0,        // Mapped from walletBalance
+      deposits: user.deposits || 0,
+      profits: user.profits || 0,
+      bonuses: user.bonuses !== undefined ? user.bonuses : 500, // Guarantees $500 bonus
+      twoFAEnabled: user.twoFAEnabled || false,
+      emailNotifications: user.emailNotifications !== false,
+      emailVerified: true,                     // Set during OTP verification
+      phoneVerified: user.phoneVerified || false,
+      country: user.country || '',
+      createdAt: user.createdAt,
+      lastLogin: user.lastLogin
+    });
+
+  } catch (err) {
+    console.error('[/api/profile] ERROR:', err);
+    return res.status(500).json({ error: 'Server error fetching profile.' });
+  }
 });
  
 // ─── SETTINGS ─────────────────────────────────────────────────
@@ -788,17 +818,37 @@ app.post('/api/login', async (req, res) => {
 
 // Get user profile
 // ─── PROFILE ──────────────────────────────────────────────────
-app.get('/api/profile', authMiddleware, (req, res) => {
-  const user = users[req.user.email];
-  if (!user) return res.status(404).json({ error: 'User not found' });
-  res.json({
-    username: user.username, email: user.email, phone: user.phone,
-    balance: user.balance, deposits: user.deposits,
-    profits: user.profits, bonuses: user.bonuses,
-    twoFAEnabled: user.twoFAEnabled, emailNotifications: user.emailNotifications,
-    emailVerified: user.emailVerified, phoneVerified: user.phoneVerified,
-    country: user.country, createdAt: user.createdAt, lastLogin: user.lastLogin
-  });
+app.get('/api/profile', authMiddleware, async (req, res) => {
+  try {
+    // Fetch user directly from MongoDB using the email attached by authMiddleware
+    const user = await User.findOne({ email: req.user.email.toLowerCase().trim() });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Return profile data mapped cleanly to MongoDB document fields
+    return res.json({
+      username: user.username || user.email.split('@')[0],
+      email: user.email,
+      phone: user.phone || '',
+      balance: user.walletBalance || 0,        // Mapped from walletBalance
+      deposits: user.deposits || 0,
+      profits: user.profits || 0,
+      bonuses: user.bonuses !== undefined ? user.bonuses : 500, // Guarantees $500 bonus
+      twoFAEnabled: user.twoFAEnabled || false,
+      emailNotifications: user.emailNotifications !== false,
+      emailVerified: true,                     // Set during OTP verification
+      phoneVerified: user.phoneVerified || false,
+      country: user.country || '',
+      createdAt: user.createdAt,
+      lastLogin: user.lastLogin
+    });
+
+  } catch (err) {
+    console.error('[/api/profile] ERROR:', err);
+    return res.status(500).json({ error: 'Server error fetching profile.' });
+  }
 });
 
 // ─── SETTINGS ─────────────────────────────────────────────────

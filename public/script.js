@@ -20,28 +20,40 @@ let state = {
 function saveAuth(token, user) {
   state.token = token;
   state.user = user;
+  
   localStorage.setItem('nsx_token', token);
   localStorage.setItem('nsx_user', JSON.stringify(user));
+  
+  // Re-render navigation bar immediately
+  renderNav();
 }
 
 function loadAuth() {
-  const token = localStorage.getItem('nsx_token');
-  const user = localStorage.getItem('nsx_user');
-  if (token && user) {
-    state.token = token;
-    state.user = JSON.parse(user);
-    return true;
+  const savedToken = localStorage.getItem('nsx_token') || localStorage.getItem('token');
+  const savedUser  = localStorage.getItem('nsx_user') || localStorage.getItem('user');
+
+  if (savedToken && savedUser) {
+    try {
+      state.token = savedToken;
+      state.user  = JSON.parse(savedUser);
+    } catch (err) {
+      console.error('[loadAuth] Failed to parse user session:', err);
+      state.token = null;
+      state.user  = null;
+    }
   }
-  return false;
 }
 
 function logout() {
-  state.token = null;
-  state.user = null;
   localStorage.removeItem('nsx_token');
   localStorage.removeItem('nsx_user');
+  state.token = null;
+  state.user = null;
+  state.notifications = [];
+  
   renderNav();
-  navigate('home');
+  if (typeof toast === 'function') toast('Logged out successfully.');
+  if (typeof navigate === 'function') navigate('login');
 }
 
 // ── API ──
@@ -107,8 +119,17 @@ function onPageLoad(page) {
 // ── NAV ──
 function renderNav() {
   const authSection = document.getElementById('nav-auth');
+  if (!authSection) return;
+
   if (state.user) {
-    const unread = state.notifications.filter(n => !n.read).length;
+    // Ensure notifications exists as an array to prevent crashes
+    const notifs = Array.isArray(state.notifications) ? state.notifications : [];
+    const unread = notifs.filter(n => !n.read).length;
+
+    // Safely extract display name and avatar initial
+    const displayName = state.user.username || state.user.email || 'User';
+    const initial = displayName.charAt(0).toUpperCase();
+
     authSection.innerHTML = `
       <button class="notif-bell" onclick="navigate('notifications')" title="Notifications">
         🔔
@@ -116,8 +137,8 @@ function renderNav() {
       </button>
       <div class="user-menu">
         <button class="user-btn" onclick="toggleDropdown()">
-          <div class="user-avatar">${state.user.username.charAt(0).toUpperCase()}</div>
-          ${state.user.username}
+          <div class="user-avatar">${initial}</div>
+          <span>${displayName}</span>
           <span>▾</span>
         </button>
         <div class="dropdown" id="user-dropdown">
@@ -132,10 +153,12 @@ function renderNav() {
         </div>
       </div>`;
 
-
-    // Poll notifications
-    fetchNotifications();
+    // Fetch notifications if helper function exists
+    if (typeof fetchNotifications === 'function') {
+      fetchNotifications().catch(() => {});
+    }
   } else {
+    // Logged Out State
     authSection.innerHTML = `
       <button class="btn btn-ghost btn-sm" onclick="navigate('login')">Log In</button>
       <button class="btn btn-primary btn-sm" onclick="navigate('signup')">Sign Up</button>`;
@@ -930,10 +953,20 @@ async function disconnectWallet(id) {
 
 // ── INIT ──
 document.addEventListener('DOMContentLoaded', () => {
+  // 1. Restore auth state from localStorage
   loadAuth();
-  renderNav();
-  navigate('home');
 
+  // 2. Render the correct navigation bar (Guest vs. User)
+  renderNav();
+
+  // 3. Smart routing: If logged in, go to dashboard; if guest, go to home
+  if (state.user) {
+    navigate('dashboard');
+  } else {
+    navigate('home');
+  }
+
+  // 4. Attach form listeners
   document.getElementById('login-form')?.addEventListener('submit', handleLogin);
   document.getElementById('signup-form')?.addEventListener('submit', handleSignup);
   document.getElementById('otp-form')?.addEventListener('submit', handleVerifyOtp);
@@ -943,6 +976,8 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('settings-pass-form')?.addEventListener('submit', handleChangePassword);
   document.getElementById('wallet-connect-form')?.addEventListener('submit', handleConnectWallet);
 
-  // Poll notifications every 30s
-  if (state.user) setInterval(fetchNotifications, 30000);
+  // 5. Poll notifications every 30s if authenticated
+  if (state.user && typeof fetchNotifications === 'function') {
+    setInterval(fetchNotifications, 30000);
+  }
 });
