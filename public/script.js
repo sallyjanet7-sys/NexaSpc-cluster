@@ -93,27 +93,47 @@ async function api(endpoint, options = {}) {
 
 // ── NAVIGATION ──
 function navigate(page) {
+  // 1. ROUTE GUARD: If logged-in user hits 'home', redirect to 'dashboard'
+  if (page === 'home' && state.user) {
+    page = 'dashboard';
+  }
+
+  // 2. PROTECTED ROUTES: If guest tries to access private pages, send to 'login'
+  const protectedPages = [
+    'dashboard', 'deposit', 'withdraw', 'transactions', 
+    'settings', 'connect-wallet', 'notifications', 'spot'
+  ];
+  if (!state.user && protectedPages.includes(page)) {
+    page = 'login';
+  }
+
+  // 3. UI Update: Toggle active class on pages using your exact 'page-' ID pattern
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   const el = document.getElementById('page-' + page);
   if (el) el.classList.add('active');
+
+  // 4. Update Navigation Links
   document.querySelectorAll('.nav-links a').forEach(a => {
     a.classList.toggle('active', a.dataset.page === page);
   });
+
   window.scrollTo(0, 0);
+
+  // 5. Trigger specific page load actions
   onPageLoad(page);
 }
 
 function onPageLoad(page) {
-  if (page === 'markets')      loadMarkets();
-  if (page === 'dashboard')    loadDashboard();
-  if (page === 'deposit')      loadDeposit();
-  if (page === 'withdraw')     loadWithdraw();
-  if (page === 'transactions') loadTransactions();
-  if (page === 'spot')         loadSpot();
-  if (page === 'home')         loadHomeTicker();
-  if (page === 'settings')     loadSettings();
+  if (page === 'markets')        loadMarkets();
+  if (page === 'dashboard')      loadDashboard();
+  if (page === 'deposit')        loadDeposit();
+  if (page === 'withdraw')       loadWithdraw();
+  if (page === 'transactions')   loadTransactions();
+  if (page === 'spot')           loadSpot();
+  if (page === 'home')           loadHomeTicker();
+  if (page === 'settings')       loadSettings();
   if (page === 'connect-wallet') loadConnectWallet();
-  if (page === 'notifications') loadNotifications();
+  if (page === 'notifications')  loadNotifications();
 }
 
 // ── NAV ──
