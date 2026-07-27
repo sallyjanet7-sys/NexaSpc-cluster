@@ -124,16 +124,16 @@ function navigate(page) {
 }
 
 function onPageLoad(page) {
-  if (page === 'markets')        loadMarkets();
-  if (page === 'dashboard')      loadDashboard();
-  if (page === 'deposit')        loadDeposit();
-  if (page === 'withdraw')       loadWithdraw();
-  if (page === 'transactions')   loadTransactions();
-  if (page === 'spot')           loadSpot();
-  if (page === 'home')           loadHomeTicker();
-  if (page === 'settings')       loadSettings();
+  if (page === 'markets')      loadMarkets();
+  if (page === 'dashboard')    loadDashboard();
+  if (page === 'deposit')      loadDeposit();
+  if (page === 'withdraw')     loadWithdraw();
+  if (page === 'transactions') loadTransactions();
+  if (page === 'spot')         loadSpot();
+  if (page === 'home')         loadHomeTicker();
+  if (page === 'settings')     loadSettings();
   if (page === 'connect-wallet') loadConnectWallet();
-  if (page === 'notifications')  loadNotifications();
+  if (page === 'notifications') loadNotifications();
 }
 
 // ── NAV ──
@@ -516,6 +516,52 @@ function renderHoldings(holdings) {
   `).join('');
 }
 
+async function loadRecentActivityPreview() {
+  const previewEl = document.getElementById('dash-tx-preview');
+  if (!previewEl) return;
+
+  try {
+    const data = await api('/transactions');
+    const txs = data.transactions || [];
+
+    if (txs.length === 0) {
+      previewEl.innerHTML = `No activity yet. <a href="#" onclick="navigate('deposit')" style="color:var(--accent)">Make your first deposit →</a>`;
+      return;
+    }
+
+    // Show only latest 3 transactions
+    previewEl.innerHTML = txs.slice(0, 3).map(tx => renderTxItem(tx)).join('');
+  } catch (err) {
+    console.error('Failed to load recent activity preview', err);
+  }
+}
+
+// Helper to format a single transaction card/row
+function renderTxItem(tx) {
+  const isPending = tx.status === 'pending';
+  const statusBadge = isPending 
+    ? `<span style="background:rgba(245,158,11,0.15);color:#f59e0b;padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:600;">PENDING</span>`
+    : tx.status === 'completed'
+    ? `<span style="background:rgba(16,185,129,0.15);color:#10b981;padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:600;">COMPLETED</span>`
+    : `<span style="background:rgba(239,68,68,0.15);color:#ef4444;padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:600;">FAILED</span>`;
+
+  const dateStr = new Date(tx.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+
+  return `
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:1rem;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.05);border-radius:8px;margin-bottom:0.75rem;">
+      <div>
+        <div style="font-weight:600;text-transform:capitalize;margin-bottom:0.25rem;">${tx.type} (${tx.coin})</div>
+        <div style="color:var(--text3);font-size:0.75rem;">${dateStr} • TX: ${tx.txHash.substring(0, 8)}...</div>
+      </div>
+      <div style="text-align:right;">
+        <div style="font-weight:700;margin-bottom:0.25rem;">+$${fmt(tx.amount)}</div>
+        ${statusBadge}
+      </div>
+    </div>
+  `;
+}
+
+
 function fmt(n) { return Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 
 // ── MARKETS ──
@@ -614,7 +660,6 @@ function copyAddress() {
   });
 }
 
-// FEATURE 1: Submit Deposit
 async function handleDeposit(e) {
   e.preventDefault();
   if (!state.selectedCoin) { toast('Select a coin first', 'error'); return; }
@@ -642,79 +687,6 @@ async function handleDeposit(e) {
   } catch (err) {
     toast(err.message || 'Deposit failed', 'error');
   }
-}
-
-// FEATURE 3: Render Holdings on Dashboard
-// 1. Load Dashboard
-async function loadDashboard() {
-  if (!state.user) { navigate('login'); return; }
-  try {
-    const user = await api('/profile');
-    state.user = { ...state.user, ...user };
-    localStorage.setItem('nsx_user', JSON.stringify(state.user));
-
-    // Dashboard Stat Cards
-    if (document.getElementById('dash-balance'))  document.getElementById('dash-balance').textContent  = '$' + fmt(user.balance || 0);
-    if (document.getElementById('dash-deposits')) document.getElementById('dash-deposits').textContent = '$' + fmt(user.deposits || 0);
-    if (document.getElementById('dash-profits'))  document.getElementById('dash-profits').textContent  = '$' + fmt(user.profits || 0);
-
-    // Render Holdings
-    renderHoldings(user.holdings || []);
-
-    // Load Recent Activity Preview (First 3 items)
-    loadRecentActivityPreview();
-  } catch (err) {
-    console.error('Failed to load dashboard:', err);
-  }
-}
-
-
-
-
-// 4. Render Dashboard Recent Activity Preview (#dash-tx-preview)
-async function loadRecentActivityPreview() {
-  const previewEl = document.getElementById('dash-tx-preview');
-  if (!previewEl) return;
-
-  try {
-    const data = await api('/transactions');
-    const txs = data.transactions || [];
-
-    if (txs.length === 0) {
-      previewEl.innerHTML = `No activity yet. <a href="#" onclick="navigate('deposit')" style="color:var(--accent)">Make your first deposit →</a>`;
-      return;
-    }
-
-    // Show only latest 3 transactions
-    previewEl.innerHTML = txs.slice(0, 3).map(tx => renderTxItem(tx)).join('');
-  } catch (err) {
-    console.error('Failed to load recent activity preview', err);
-  }
-}
-
-// Helper to format a single transaction card/row
-function renderTxItem(tx) {
-  const isPending = tx.status === 'pending';
-  const statusBadge = isPending 
-    ? `<span style="background:rgba(245,158,11,0.15);color:#f59e0b;padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:600;">PENDING</span>`
-    : tx.status === 'completed'
-    ? `<span style="background:rgba(16,185,129,0.15);color:#10b981;padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:600;">COMPLETED</span>`
-    : `<span style="background:rgba(239,68,68,0.15);color:#ef4444;padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:600;">FAILED</span>`;
-
-  const dateStr = new Date(tx.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
-
-  return `
-    <div style="display:flex;justify-content:space-between;align-items:center;padding:1rem;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.05);border-radius:8px;margin-bottom:0.75rem;">
-      <div>
-        <div style="font-weight:600;text-transform:capitalize;margin-bottom:0.25rem;">${tx.type} (${tx.coin})</div>
-        <div style="color:var(--text3);font-size:0.75rem;">${dateStr} • TX: ${tx.txHash.substring(0, 8)}...</div>
-      </div>
-      <div style="text-align:right;">
-        <div style="font-weight:700;margin-bottom:0.25rem;">+$${fmt(tx.amount)}</div>
-        ${statusBadge}
-      </div>
-    </div>
-  `;
 }
 
 // ── WITHDRAW ──
@@ -754,26 +726,32 @@ async function handleWithdraw(e) {
 
 // ── TRANSACTIONS ──
 async function loadTransactions() {
-  const listEl = document.getElementById('tx-list');
+  const listEl = document.getElementById('transactions-list');
   if (!listEl) return;
-
-  listEl.innerHTML = `<div style="text-align:center;color:var(--text3);padding:3rem">Loading…</div>`;
 
   try {
     const data = await api('/transactions');
-    const txs = data.transactions || [];
-
-    if (txs.length === 0) {
-      listEl.innerHTML = `
-        <div style="text-align:center;color:var(--text3);padding:3rem;">
-          No transactions yet. <a href="#" onclick="navigate('deposit')" style="color:var(--accent)">Make a deposit →</a>
-        </div>`;
+    if (!data.transactions || data.transactions.length === 0) {
+      listEl.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:20px;">No transactions found.</td></tr>`;
       return;
     }
 
-    listEl.innerHTML = txs.map(tx => renderTxItem(tx)).join('');
+    listEl.innerHTML = data.transactions.map(tx => {
+      const isPending = tx.status === 'pending';
+      const statusColor = isPending ? '#f59e0b' : tx.status === 'completed' ? '#10b981' : '#ef4444';
+      
+      return `
+        <tr style="border-bottom:1px solid #1e2d4a;">
+          <td style="padding:10px;">${new Date(tx.createdAt).toLocaleDateString()}</td>
+          <td style="padding:10px;"><strong>${tx.type.toUpperCase()}</strong> (${tx.coin})</td>
+          <td style="padding:10px;">$${fmt(tx.amount)}</td>
+          <td style="padding:10px;"><small>${tx.txHash.substring(0, 8)}...</small></td>
+          <td style="padding:10px;"><span style="color:${statusColor}; font-weight:bold;">${tx.status.toUpperCase()}</span></td>
+        </tr>
+      `;
+    }).join('');
   } catch (err) {
-    listEl.innerHTML = `<div style="text-align:center;color:#ef4444;padding:2rem;">Failed to load transactions.</div>`;
+    console.error('Failed to load transactions:', err);
   }
 }
 
@@ -876,7 +854,6 @@ async function loadNotifications() {
 //     console.error('Signup error:', err.message);
 //   }
 // }
-
 
 // async function getAdminActivity() {
 //   const token = localStorage.getItem('adminToken'); // You must be logged in as admin

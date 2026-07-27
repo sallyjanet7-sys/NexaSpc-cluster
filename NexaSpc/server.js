@@ -1031,60 +1031,39 @@ app.post('/api/admin/update-balance', adminMiddleware, async (req, res) => {
 });
  
 // ─── TRANSACTIONS ─────────────────────────────────────────────
-app.post('/api/deposit', authMiddleware, async (req, res) => {
+app.get('/api/transactions', authMiddleware, async (req, res) => {
   try {
-    const { coin, amount, txHash } = req.body;
-    const amt = parseFloat(amount);
-
-    if (!coin || isNaN(amt) || amt <= 0) {
-      return res.status(400).json({ error: 'Invalid deposit data' });
-    }
-
-    const email = req.user.email.toLowerCase().trim();
-    const user = await User.findOne({ email });
-    if (!user) return res.status(404).json({ error: 'User not found' });
-
-    // 1. Save transaction as PENDING
-    const tx = await Transaction.create({
-      userId: user._id,
-      userEmail: email,
-      type: 'deposit',
-      coin: coin.toUpperCase(),
-      amount: amt,
-      txHash: txHash || '0x' + Math.random().toString(36).substring(2, 15),
-      status: 'pending'
-    });
-
-    // OPTIONAL: Auto-confirm after random delay between 3 to 12 minutes (180,000ms - 720,000ms)
-    const randomDelay = Math.floor(Math.random() * (720000 - 180000 + 1)) + 180000;
-    
-    setTimeout(async () => {
-      try {
-        const pendingTx = await Transaction.findById(tx._id);
-        // Only confirm if admin hasn't rejected/changed status manually
-        if (pendingTx && pendingTx.status === 'pending') {
-          pendingTx.status = 'completed';
-          await pendingTx.save();
-
-          // Increment balance and update specific coin holding
-          await creditUserDeposit(user._id, pendingTx.coin, pendingTx.amount);
-        }
-      } catch (err) {
-        console.error('Auto-confirmation error:', err);
-      }
-    }, randomDelay);
-
-    return res.json({
-      success: true,
-      message: 'Deposit submitted! Confirmation typically takes 3-12 minutes.',
-      transaction: tx
-    });
-
+    const txs = await Transaction.find({ userEmail: req.user.email.toLowerCase().trim() })
+      .sort({ createdAt: -1 });
+    return res.json({ success: true, transactions: txs });
   } catch (err) {
-    console.error('[/api/deposit] ERROR:', err);
-    return res.status(500).json({ error: 'Server error creating pending deposit.' });
+    return res.status(500).json({ error: 'Failed to fetch transactions.' });
   }
 });
+
+// Helper function to credit funds when a deposit is completed
+async function creditUserDeposit(userId, coin, amount) {
+  const profitBonus = amount * 0.05;
+  const totalCredit = amount + profitBonus;
+
+  const user = await User.findById(userId);
+  if (!user) return;
+
+  user.walletBalance = (user.walletBalance || 0) + totalCredit;
+  user.deposits = (user.deposits || 0) + amount;
+  user.profits = (user.profits || 0) + profitBonus;
+
+  if (!Array.isArray(user.holdings)) user.holdings = [];
+  let holding = user.holdings.find(h => h.coin === coin);
+  if (holding) {
+    holding.amount += amount;
+    holding.usdValue += amount;
+  } else {
+    user.holdings.push({ coin, amount, usdValue: amount });
+  }
+
+  await user.save();
+}
 
 // Helper function to credit user funds & holdings
 async function creditUserDeposit(userId, coin, amount) {
