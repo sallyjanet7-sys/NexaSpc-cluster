@@ -476,12 +476,40 @@ async function loadDashboard() {
     const user = await api('/profile');
     state.user = { ...state.user, ...user };
     localStorage.setItem('nsx_user', JSON.stringify(state.user));
-    document.getElementById('dash-username').textContent = user.username;
-    document.getElementById('dash-balance').textContent  = '$' + fmt(user.balance);
-    document.getElementById('dash-deposits').textContent = '$' + fmt(user.deposits);
-    document.getElementById('dash-profits').textContent  = '$' + fmt(user.profits);
-    document.getElementById('dash-bonuses').textContent  = '$' + fmt(user.bonuses);
-  } catch {}
+
+    // Basic Metrics
+    if (document.getElementById('dash-balance'))  document.getElementById('dash-balance').textContent  = '$' + fmt(user.balance || 0);
+    if (document.getElementById('dash-deposits')) document.getElementById('dash-deposits').textContent = '$' + fmt(user.deposits || 0);
+    if (document.getElementById('dash-profits'))  document.getElementById('dash-profits').textContent  = '$' + fmt(user.profits || 0);
+    if (document.getElementById('dash-bonuses'))  document.getElementById('dash-bonuses').textContent  = '$' + fmt(user.bonuses ?? 500);
+
+    // Render Holdings List
+    renderHoldings(user.holdings || []);
+  } catch (err) {
+    console.error('Failed to load dashboard', err);
+  }
+}
+
+function renderHoldings(holdings) {
+  const container = document.getElementById('holdings-list');
+  if (!container) return;
+
+  if (holdings.length === 0) {
+    container.innerHTML = `<div class="empty-state">No active crypto holdings yet.</div>`;
+    return;
+  }
+
+  container.innerHTML = holdings.map(h => `
+    <div class="holding-card" style="display:flex; justify-between; padding: 12px; background: #121929; margin-bottom: 8px; border-radius: 8px;">
+      <div style="display:flex; align-items:center; gap:10px;">
+        <strong>${h.coin}</strong>
+      </div>
+      <div>
+        <div>${fmt(h.amount)} ${h.coin}</div>
+        <small style="color:#94a3b8;">~$${fmt(h.usdValue)} USD</small>
+      </div>
+    </div>
+  `).join('');
 }
 
 function fmt(n) { return Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
@@ -671,32 +699,33 @@ async function handleWithdraw(e) {
 
 // ── TRANSACTIONS ──
 async function loadTransactions() {
-  if (!state.user) { navigate('login'); return; }
   try {
-    const txs = await api('/transactions');
-    const container = document.getElementById('tx-list');
-    if (!txs.length) {
-      container.innerHTML = '<div style="text-align:center;color:var(--text3);padding:3rem">No transactions yet</div>';
+    const res = await api('/transactions');
+    const listEl = document.getElementById('transactions-list');
+    if (!listEl) return;
+
+    if (!res.transactions || res.transactions.length === 0) {
+      listEl.innerHTML = `<tr><td colspan="5" style="text-align:center;">No transactions found.</td></tr>`;
       return;
     }
-    container.innerHTML = txs.map(tx => {
-      const isDeposit = tx.type === 'deposit';
-      const date = new Date(tx.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-      return `<div class="tx-item">
-        <div class="tx-type">
-          <div class="tx-icon ${tx.type}">${isDeposit ? '⬇️' : '⬆️'}</div>
-          <div>
-            <div class="tx-name">${isDeposit ? 'Deposit' : 'Withdrawal'} · ${tx.coin}</div>
-            <div class="tx-date">${date}</div>
-          </div>
-        </div>
-        <div style="display:flex;align-items:center;gap:0.75rem">
-          <span class="badge badge-${tx.status}">${tx.status}</span>
-          <span class="tx-amount ${isDeposit ? 'up' : 'down'}">${isDeposit ? '+' : '-'}$${Number(tx.amount).toFixed(2)}</span>
-        </div>
-      </div>`;
+
+    listEl.innerHTML = res.transactions.map(tx => {
+      const isPending = tx.status === 'pending';
+      const badgeClass = isPending ? 'badge-warning' : tx.status === 'completed' ? 'badge-success' : 'badge-danger';
+      
+      return `
+        <tr>
+          <td>${new Date(tx.createdAt).toLocaleDateString()} ${new Date(tx.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</td>
+          <td><strong style="text-transform:uppercase;">${tx.type}</strong> (${tx.coin})</td>
+          <td>$${fmt(tx.amount)}</td>
+          <td><small>${tx.txHash.substring(0, 10)}...</small></td>
+          <td><span class="badge ${badgeClass}" style="padding:4px 8px; border-radius:4px; font-size:12px;">${tx.status.toUpperCase()}</span></td>
+        </tr>
+      `;
     }).join('');
-  } catch {}
+  } catch (err) {
+    console.error('Failed to load transactions', err);
+  }
 }
 
 // ── SPOT ──
@@ -798,6 +827,7 @@ async function loadNotifications() {
 //     console.error('Signup error:', err.message);
 //   }
 // }
+
 
 // async function getAdminActivity() {
 //   const token = localStorage.getItem('adminToken'); // You must be logged in as admin

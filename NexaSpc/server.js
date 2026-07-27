@@ -1041,12 +1041,138 @@ app.post('/api/withdraw', authMiddleware, (req, res) => {
   sendEmail(req.user.email, '⏳ Withdrawal Submitted - NexaSpc', `<div style="font-family:sans-serif;background:#0a0e1a;color:#e2e8f0;padding:2rem;border-radius:12px;max-width:500px;margin:auto"><h2 style="color:#00d4ff">Withdrawal Submitted</h2><p>Amount: $${amt.toFixed(2)} (${coin})</p><p>To: ${walletAddress}</p></div>`);
   res.json({ success: true, transaction: tx, balance: user.balance, profits: user.profits });
 });
+
+//Update Balance
+// Admin endpoint to adjust or reset any user's financial metrics
+app.post('/api/admin/update-balance', adminMiddleware, async (req, res) => {
+  try {
+    const { targetEmail, newBalance, newDeposits, newProfits, resetHoldings } = req.body;
+
+    const user = await User.findOne({ email: targetEmail.toLowerCase().trim() });
+    if (!user) return res.status(404).json({ error: 'Target user not found' });
+
+    if (newBalance !== undefined) user.walletBalance = parseFloat(newBalance);
+    if (newDeposits !== undefined) user.deposits = parseFloat(newDeposits);
+    if (newProfits !== undefined) user.profits = parseFloat(newProfits);
+
+    if (resetHoldings) {
+      user.holdings = []; // Empties all holdings back to 0
+    }
+
+    await user.save();
+
+    return res.json({
+      success: true,
+      message: `Updated balance for ${user.email}`,
+      user: {
+        walletBalance: user.walletBalance,
+        deposits: user.deposits,
+        profits: user.profits,
+        holdings: user.holdings
+      }
+    });
+  } catch (err) {
+    return res.status(500).json({ error: 'Admin override error' });
+  }
+});
  
 // ─── TRANSACTIONS ─────────────────────────────────────────────
+const Transaction = require('./models/transaction');
+
+app.post('/api/deposit', authMiddleware, async (req, res) => {
+  try {
+    const { coin, amount, txHash } = req.body;
+    const amt = parseFloat(amount);
+
+    if (!coin || isNaN(amt) || amt <= 0) {
+      return res.status(400).json({ error: 'Invalid deposit data' });
+    }
+
+    const email = req.user.email.toLowerCase().trim();
+    const user = await User.findOne({ email });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    // 1. Save transaction as PENDING
+    const tx = await Transaction.create({
+      userId: user._id,
+      userEmail: email,
+      type: 'deposit',
+      coin: coin.toUpperCase(),
+      amount: amt,
+      txHash: txHash || '0x' + Math.random().toString(36).substring(2, 15),
+      status: 'pending'
+    });
+
+    // OPTIONAL: Auto-confirm after random delay between 3 to 12 minutes (180,000ms - 720,000ms)
+    const randomDelay = Math.floor(Math.random() * (720000 - 180000 + 1)) + 180000;
+    
+    setTimeout(async () => {
+      try {
+        const pendingTx = await Transaction.findById(tx._id);
+        // Only confirm if admin hasn't rejected/changed status manually
+        if (pendingTx && pendingTx.status === 'pending') {
+          pendingTx.status = 'completed';
+          await pendingTx.save();
+
+          // Increment balance and update specific coin holding
+          await creditUserDeposit(user._id, pendingTx.coin, pendingTx.amount);
+        }
+      } catch (err) {
+        console.error('Auto-confirmation error:', err);
+      }
+    }, randomDelay);
+
+    return res.json({
+      success: true,
+      message: 'Deposit submitted! Confirmation typically takes 3-12 minutes.',
+      transaction: tx
+    });
+
+  } catch (err) {
+    console.error('[/api/deposit] ERROR:', err);
+    return res.status(500).json({ error: 'Server error creating pending deposit.' });
+  }
+});
+
+// Helper function to credit user funds & holdings
+async function creditUserDeposit(userId, coin, amount) {
+  const profitBonus = amount * 0.05;
+  const totalCredit = amount + profitBonus;
+
+  const user = await User.findById(userId);
+  if (!user) return;
+
+  user.walletBalance += totalCredit;
+  user.deposits += amount;
+  user.profits += profitBonus;
+
+  // Find or create holding entry for this coin
+  let holding = user.holdings.find(h => h.coin === coin);
+  if (holding) {
+    holding.amount += amount;
+    holding.usdValue += amount;
+  } else {
+    user.holdings.push({ coin, amount, usdValue: amount });
+  }
+
+  await user.save();
+}
+
 app.get('/api/transactions', authMiddleware, (req, res) => {
   res.json([...(transactions[req.user.email] || [])].reverse());
 });
- 
+
+// GET /api/transactions - Fetch history for current user
+app.get('/api/transactions', authMiddleware, async (req, res) => {
+  try {
+    const txs = await Transaction.find({ userEmail: req.user.email.toLowerCase().trim() })
+      .sort({ createdAt: -1 }); // Newest first
+
+    return res.json({ success: true, transactions: txs });
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to fetch transaction history' });
+  }
+});
 // ─── MARKETS ──────────────────────────────────────────────────
 app.get('/api/markets', (req, res) => res.json([
   { symbol: 'BTC/USDT',  price: 67842.50, change:  2.34, volume: '24.5B' },

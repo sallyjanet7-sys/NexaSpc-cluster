@@ -10,6 +10,15 @@ const userSchema = new mongoose.Schema({
   deposits: { type: Number, default: 0 },
   profits: { type: Number, default: 0 },
   assets: [{ coin: String, amount: Number }],
+
+  
+  // Holdings breakdown per coin
+  holdings: [{
+    coin: { type: String, required: true }, // e.g. 'BTC', 'ETH', 'USDT'
+    amount: { type: Number, default: 0 },   // Amount in crypto unit or USD equivalent
+    usdValue: { type: Number, default: 0 }
+  }],
+  
   createdAt: { type: Date, default: Date.now }
 });
 
