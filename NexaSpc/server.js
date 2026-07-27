@@ -46,6 +46,8 @@ const adminLog = [];
 // pendingUsers[email] = { username, email, hashedPassword, phone, emailOtp, phoneOtp, emailOtpExpiry, phoneOtpExpiry, emailVerified, phoneVerified }
 const pendingUsers = {};
 
+const Transaction = require('./models/transaction');
+
 // ─── OTP HELPERS ──────────────────────────────────────────────
 function generateOtp() {
   return Math.floor(100000 + Math.random() * 900000).toString(); // 6-digit
@@ -1077,8 +1079,6 @@ app.post('/api/admin/update-balance', adminMiddleware, async (req, res) => {
 });
  
 // ─── TRANSACTIONS ─────────────────────────────────────────────
-const Transaction = require('./models/transaction');
-
 app.post('/api/deposit', authMiddleware, async (req, res) => {
   try {
     const { coin, amount, txHash } = req.body;
