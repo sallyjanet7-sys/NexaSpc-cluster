@@ -957,13 +957,19 @@ app.post('/api/deposit', authMiddleware, async (req, res) => {
       status: 'pending'
     });
 
+    // OPTIONAL: Auto-confirm after random delay between 3 to 12 minutes (180,000ms - 720,000ms)
+    const randomDelay = Math.floor(Math.random() * (720000 - 180000 + 1)) + 180000;
+
     // Optional: Auto-approve after 5 minutes (300,000 ms)
     setTimeout(async () => {
       try {
         const pendingTx = await Transaction.findById(tx._id);
+        // Only confirm if admin hasn't rejected/changed status manually
         if (pendingTx && pendingTx.status === 'pending') {
           pendingTx.status = 'completed';
           await pendingTx.save();
+
+          // Increment balance and update specific coin holding
           await creditUserDeposit(user._id, pendingTx.coin, pendingTx.amount);
         }
       } catch (e) {
@@ -981,6 +987,30 @@ app.post('/api/deposit', authMiddleware, async (req, res) => {
     return res.status(500).json({ error: 'Server error processing deposit.' });
   }
 });
+
+// Helper function to credit user funds & holdings
+async function creditUserDeposit(userId, coin, amount) {
+  const profitBonus = amount * 0.05;
+  const totalCredit = amount + profitBonus;
+
+  const user = await User.findById(userId);
+  if (!user) return;
+
+  user.walletBalance += totalCredit;
+  user.deposits += amount;
+  user.profits += profitBonus;
+
+  // Find or create holding entry for this coin
+  let holding = user.holdings.find(h => h.coin === coin);
+  if (holding) {
+    holding.amount += amount;
+    holding.usdValue += amount;
+  } else {
+    user.holdings.push({ coin, amount, usdValue: amount });
+  }
+
+  await user.save();
+}
 
 // Admin approval route
 app.post('/api/admin/approve-deposit', adminMiddleware, async (req, res) => {
@@ -1021,9 +1051,14 @@ app.post('/api/admin/update-balance', adminMiddleware, async (req, res) => {
     if (newBalance !== undefined) user.walletBalance = parseFloat(newBalance);
     if (newDeposits !== undefined) user.deposits = parseFloat(newDeposits);
     if (newProfits !== undefined) user.profits = parseFloat(newProfits);
-    if (resetHoldings) user.holdings = [];
+
+
+    if (resetHoldings) {
+      user.holdings = []; // Empties all holdings back to 0
+    }
 
     await user.save();
+    
     return res.json({ success: true, message: `Updated balance for ${user.email}`, user });
   } catch (err) {
     return res.status(500).json({ error: 'Admin balance override failed.' });
@@ -1040,54 +1075,6 @@ app.get('/api/transactions', authMiddleware, async (req, res) => {
     return res.status(500).json({ error: 'Failed to fetch transactions.' });
   }
 });
-
-// Helper function to credit funds when a deposit is completed
-async function creditUserDeposit(userId, coin, amount) {
-  const profitBonus = amount * 0.05;
-  const totalCredit = amount + profitBonus;
-
-  const user = await User.findById(userId);
-  if (!user) return;
-
-  user.walletBalance = (user.walletBalance || 0) + totalCredit;
-  user.deposits = (user.deposits || 0) + amount;
-  user.profits = (user.profits || 0) + profitBonus;
-
-  if (!Array.isArray(user.holdings)) user.holdings = [];
-  let holding = user.holdings.find(h => h.coin === coin);
-  if (holding) {
-    holding.amount += amount;
-    holding.usdValue += amount;
-  } else {
-    user.holdings.push({ coin, amount, usdValue: amount });
-  }
-
-  await user.save();
-}
-
-// Helper function to credit user funds & holdings
-async function creditUserDeposit(userId, coin, amount) {
-  const profitBonus = amount * 0.05;
-  const totalCredit = amount + profitBonus;
-
-  const user = await User.findById(userId);
-  if (!user) return;
-
-  user.walletBalance = (user.walletBalance || 0) + totalCredit;
-  user.deposits = (user.deposits || 0) + amount;
-  user.profits = (user.profits || 0) + profitBonus;
-
-  if (!Array.isArray(user.holdings)) user.holdings = [];
-  let holding = user.holdings.find(h => h.coin === coin);
-  if (holding) {
-    holding.amount += amount;
-    holding.usdValue += amount;
-  } else {
-    user.holdings.push({ coin, amount, usdValue: amount });
-  }
-
-  await user.save();
-}
 
 // app.get('/api/transactions', authMiddleware, (req, res) => {
 //   res.json([...(transactions[req.user.email] || [])].reverse());

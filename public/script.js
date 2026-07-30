@@ -472,7 +472,7 @@ async function resendOtp() {
 // ── DASHBOARD ──
 async function loadDashboard() {
   if (!state.user) { navigate('login'); return; }
-  
+
   // Set it instantly from stored state while fetching fresh profile data
 if (state.user && state.user.username) {
   const usernameEl = document.getElementById('dash-username');
@@ -669,36 +669,6 @@ function copyAddress() {
     setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 2000);
     toast('Wallet address copied!');
   });
-}
-
-async function handleDeposit(e) {
-  e.preventDefault();
-  if (!state.selectedCoin) { toast('Select a coin first', 'error'); return; }
-
-  const amount = parseFloat(document.getElementById('deposit-amount')?.value);
-  const txHash = document.getElementById('deposit-txhash')?.value || '';
-
-  if (!amount || amount <= 0) { toast('Enter a valid amount', 'error'); return; }
-
-  try {
-    const data = await api('/deposit', {
-      method: 'POST',
-      body: JSON.stringify({ coin: state.selectedCoin, amount, txHash })
-    });
-
-    if (data.success) {
-      toast('Deposit pending! Confirmation takes 3-12 minutes.', 'info');
-      document.getElementById('deposit-form')?.reset();
-      state.selectedCoin = null;
-      document.querySelectorAll('.coin-card').forEach(c => c.classList.remove('selected'));
-      
-      // Reload history and dashboard
-      setTimeout(() => navigate('transactions'), 1500);
-    }
-  } catch (err) {
-    toast(err.message || 'Deposit failed', 'error');
-  }
-}
 
 // ── WITHDRAW ──
 async function loadWithdraw() {
@@ -737,32 +707,32 @@ async function handleWithdraw(e) {
 
 // ── TRANSACTIONS ──
 async function loadTransactions() {
-  const listEl = document.getElementById('transactions-list');
-  if (!listEl) return;
-
   try {
-    const data = await api('/transactions');
-    if (!data.transactions || data.transactions.length === 0) {
-      listEl.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:20px;">No transactions found.</td></tr>`;
+    const res = await api('/transactions');
+    const listEl = document.getElementById('transactions-list');
+    if (!listEl) return;
+
+    if (!res.transactions || res.transactions.length === 0) {
+      listEl.innerHTML = `<tr><td colspan="5" style="text-align:center;">No transactions found.</td></tr>`;
       return;
     }
 
-    listEl.innerHTML = data.transactions.map(tx => {
+    listEl.innerHTML = res.transactions.map(tx => {
       const isPending = tx.status === 'pending';
-      const statusColor = isPending ? '#f59e0b' : tx.status === 'completed' ? '#10b981' : '#ef4444';
+      const badgeClass = isPending ? 'badge-warning' : tx.status === 'completed' ? 'badge-success' : 'badge-danger';
       
       return `
-        <tr style="border-bottom:1px solid #1e2d4a;">
-          <td style="padding:10px;">${new Date(tx.createdAt).toLocaleDateString()}</td>
-          <td style="padding:10px;"><strong>${tx.type.toUpperCase()}</strong> (${tx.coin})</td>
-          <td style="padding:10px;">$${fmt(tx.amount)}</td>
-          <td style="padding:10px;"><small>${tx.txHash.substring(0, 8)}...</small></td>
-          <td style="padding:10px;"><span style="color:${statusColor}; font-weight:bold;">${tx.status.toUpperCase()}</span></td>
+        <tr>
+          <td>${new Date(tx.createdAt).toLocaleDateString()} ${new Date(tx.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</td>
+          <td><strong style="text-transform:uppercase;">${tx.type}</strong> (${tx.coin})</td>
+          <td>$${fmt(tx.amount)}</td>
+          <td><small>${tx.txHash.substring(0, 10)}...</small></td>
+          <td><span class="badge ${badgeClass}" style="padding:4px 8px; border-radius:4px; font-size:12px;">${tx.status.toUpperCase()}</span></td>
         </tr>
       `;
     }).join('');
   } catch (err) {
-    console.error('Failed to load transactions:', err);
+    console.error('Failed to load transactions', err);
   }
 }
 
