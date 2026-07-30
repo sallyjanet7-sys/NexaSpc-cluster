@@ -472,32 +472,23 @@ async function resendOtp() {
 // ── DASHBOARD ──
 async function loadDashboard() {
   if (!state.user) { navigate('login'); return; }
-
-  // Set it instantly from stored state while fetching fresh profile data
-if (state.user && state.user.username) {
-  const usernameEl = document.getElementById('dash-username');
-  if (usernameEl) usernameEl.textContent = state.user.username;
-}
   try {
     const user = await api('/profile');
     state.user = { ...state.user, ...user };
     localStorage.setItem('nsx_user', JSON.stringify(state.user));
 
-    const usernameEl = document.getElementById('dash-username');
-    if (usernameEl) {
-      usernameEl.textContent = user.username || state.user.username || 'User';
-    }
-
-    // Basic Metrics
+    // Dashboard Stat Cards
     if (document.getElementById('dash-balance'))  document.getElementById('dash-balance').textContent  = '$' + fmt(user.balance || 0);
     if (document.getElementById('dash-deposits')) document.getElementById('dash-deposits').textContent = '$' + fmt(user.deposits || 0);
     if (document.getElementById('dash-profits'))  document.getElementById('dash-profits').textContent  = '$' + fmt(user.profits || 0);
-    if (document.getElementById('dash-bonuses'))  document.getElementById('dash-bonuses').textContent  = '$' + fmt(user.bonuses ?? 500);
 
-    // Render Holdings List
+    // Render Holdings
     renderHoldings(user.holdings || []);
+
+    // Load Recent Activity Preview (First 3 items)
+    loadRecentActivityPreview();
   } catch (err) {
-    console.error('Failed to load dashboard', err);
+    console.error('Failed to load dashboard:', err);
   }
 }
 
@@ -527,6 +518,7 @@ function renderHoldings(holdings) {
   `).join('');
 }
 
+// 4. Render Dashboard Recent Activity Preview (#dash-tx-preview)
 async function loadRecentActivityPreview() {
   const previewEl = document.getElementById('dash-tx-preview');
   if (!previewEl) return;
@@ -707,32 +699,26 @@ async function handleWithdraw(e) {
 
 // ── TRANSACTIONS ──
 async function loadTransactions() {
-  try {
-    const res = await api('/transactions');
-    const listEl = document.getElementById('transactions-list');
-    if (!listEl) return;
+  const listEl = document.getElementById('tx-list');
+  if (!listEl) return;
 
-    if (!res.transactions || res.transactions.length === 0) {
-      listEl.innerHTML = `<tr><td colspan="5" style="text-align:center;">No transactions found.</td></tr>`;
+  listEl.innerHTML = `<div style="text-align:center;color:var(--text3);padding:3rem">Loading…</div>`;
+
+  try {
+    const data = await api('/transactions');
+    const txs = data.transactions || [];
+
+    if (txs.length === 0) {
+      listEl.innerHTML = `
+        <div style="text-align:center;color:var(--text3);padding:3rem;">
+          No transactions yet. <a href="#" onclick="navigate('deposit')" style="color:var(--accent)">Make a deposit →</a>
+        </div>`;
       return;
     }
 
-    listEl.innerHTML = res.transactions.map(tx => {
-      const isPending = tx.status === 'pending';
-      const badgeClass = isPending ? 'badge-warning' : tx.status === 'completed' ? 'badge-success' : 'badge-danger';
-      
-      return `
-        <tr>
-          <td>${new Date(tx.createdAt).toLocaleDateString()} ${new Date(tx.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</td>
-          <td><strong style="text-transform:uppercase;">${tx.type}</strong> (${tx.coin})</td>
-          <td>$${fmt(tx.amount)}</td>
-          <td><small>${tx.txHash.substring(0, 10)}...</small></td>
-          <td><span class="badge ${badgeClass}" style="padding:4px 8px; border-radius:4px; font-size:12px;">${tx.status.toUpperCase()}</span></td>
-        </tr>
-      `;
-    }).join('');
+    listEl.innerHTML = txs.map(tx => renderTxItem(tx)).join('');
   } catch (err) {
-    console.error('Failed to load transactions', err);
+    listEl.innerHTML = `<div style="text-align:center;color:#ef4444;padding:2rem;">Failed to load transactions.</div>`;
   }
 }
 
