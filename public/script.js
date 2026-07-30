@@ -472,10 +472,21 @@ async function resendOtp() {
 // ── DASHBOARD ──
 async function loadDashboard() {
   if (!state.user) { navigate('login'); return; }
+  
+  // Set it instantly from stored state while fetching fresh profile data
+if (state.user && state.user.username) {
+  const usernameEl = document.getElementById('dash-username');
+  if (usernameEl) usernameEl.textContent = state.user.username;
+}
   try {
     const user = await api('/profile');
     state.user = { ...state.user, ...user };
     localStorage.setItem('nsx_user', JSON.stringify(state.user));
+
+    const usernameEl = document.getElementById('dash-username');
+    if (usernameEl) {
+      usernameEl.textContent = user.username || state.user.username || 'User';
+    }
 
     // Basic Metrics
     if (document.getElementById('dash-balance'))  document.getElementById('dash-balance').textContent  = '$' + fmt(user.balance || 0);
