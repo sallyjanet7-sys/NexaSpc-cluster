@@ -1069,4 +1069,4 @@ document.addEventListener('DOMContentLoaded', () => {
   if (state.user && typeof fetchNotifications === 'function') {
     setInterval(fetchNotifications, 30000);
   }
-});
+})};
