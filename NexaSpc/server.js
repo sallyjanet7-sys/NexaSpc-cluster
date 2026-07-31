@@ -988,30 +988,6 @@ app.post('/api/deposit', authMiddleware, async (req, res) => {
   }
 });
 
-// Helper function to credit user funds & holdings
-async function creditUserDeposit(userId, coin, amount) {
-  const profitBonus = amount * 0.05;
-  const totalCredit = amount + profitBonus;
-
-  const user = await User.findById(userId);
-  if (!user) return;
-
-  user.walletBalance += totalCredit;
-  user.deposits += amount;
-  user.profits += profitBonus;
-
-  // Find or create holding entry for this coin
-  let holding = user.holdings.find(h => h.coin === coin);
-  if (holding) {
-    holding.amount += amount;
-    holding.usdValue += amount;
-  } else {
-    user.holdings.push({ coin, amount, usdValue: amount });
-  }
-
-  await user.save();
-}
-
 // Admin approval route
 app.post('/api/admin/approve-deposit', adminMiddleware, async (req, res) => {
   const { userId, amount } = req.body;
@@ -1066,16 +1042,6 @@ app.post('/api/admin/update-balance', adminMiddleware, async (req, res) => {
 });
  
 // ─── TRANSACTIONS ─────────────────────────────────────────────
-app.get('/api/transactions', authMiddleware, async (req, res) => {
-  try {
-    const txs = await Transaction.find({ userEmail: req.user.email.toLowerCase().trim() })
-      .sort({ createdAt: -1 });
-    return res.json({ success: true, transactions: txs });
-  } catch (err) {
-    return res.status(500).json({ error: 'Failed to fetch transactions.' });
-  }
-});
-
 // app.get('/api/transactions', authMiddleware, (req, res) => {
 //   res.json([...(transactions[req.user.email] || [])].reverse());
 // });

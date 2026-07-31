@@ -477,6 +477,12 @@ async function loadDashboard() {
     state.user = { ...state.user, ...user };
     localStorage.setItem('nsx_user', JSON.stringify(state.user));
 
+    // Username Greeting
+    const usernameEl = document.getElementById('dash-username');
+    if (usernameEl) {
+      usernameEl.textContent = state.user.username || 'User';
+    }
+
     // Dashboard Stat Cards
     if (document.getElementById('dash-balance'))  document.getElementById('dash-balance').textContent  = '$' + fmt(user.balance || 0);
     if (document.getElementById('dash-deposits')) document.getElementById('dash-deposits').textContent = '$' + fmt(user.deposits || 0);
@@ -548,16 +554,25 @@ function renderTxItem(tx) {
     ? `<span style="background:rgba(16,185,129,0.15);color:#10b981;padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:600;">COMPLETED</span>`
     : `<span style="background:rgba(239,68,68,0.15);color:#ef4444;padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:600;">FAILED</span>`;
 
-  const dateStr = new Date(tx.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+  // SAFE NULL CHECKS
+  const rawDate = tx.createdAt || tx.date || new Date();
+  const dateStr = new Date(rawDate).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+  
+  // Prevent crash if txHash is missing or null
+  const hash = (tx.txHash || tx.id || 'N/A').toString();
+  const shortHash = hash.length > 8 ? hash.substring(0, 8) + '...' : hash;
+
+  const coin = tx.coin ? ` (${tx.coin})` : '';
+  const type = tx.type || 'transaction';
 
   return `
     <div style="display:flex;justify-content:space-between;align-items:center;padding:1rem;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.05);border-radius:8px;margin-bottom:0.75rem;">
       <div>
-        <div style="font-weight:600;text-transform:capitalize;margin-bottom:0.25rem;">${tx.type} (${tx.coin})</div>
-        <div style="color:var(--text3);font-size:0.75rem;">${dateStr} • TX: ${tx.txHash.substring(0, 8)}...</div>
+        <div style="font-weight:600;text-transform:capitalize;margin-bottom:0.25rem;">${type}${coin}</div>
+        <div style="color:var(--text3);font-size:0.75rem;">${dateStr} • TX: ${shortHash}</div>
       </div>
       <div style="text-align:right;">
-        <div style="font-weight:700;margin-bottom:0.25rem;">+$${fmt(tx.amount)}</div>
+        <div style="font-weight:700;margin-bottom:0.25rem;">+$${fmt(tx.amount || 0)}</div>
         ${statusBadge}
       </div>
     </div>
@@ -638,6 +653,35 @@ async function loadDeposit() {
   document.getElementById('wallet-display').style.display = 'none';
 }
 
+async function handleDeposit(e) {
+  e.preventDefault();
+  if (!state.selectedCoin) { toast('Select a coin first', 'error'); return; }
+
+  const amount = parseFloat(document.getElementById('deposit-amount')?.value);
+  const txHash = document.getElementById('deposit-txhash')?.value || '';
+
+  if (!amount || amount <= 0) { toast('Enter a valid amount', 'error'); return; }
+
+  try {
+    const data = await api('/deposit', {
+      method: 'POST',
+      body: JSON.stringify({ coin: state.selectedCoin, amount, txHash })
+    });
+
+    if (data.success) {
+      toast('Deposit pending! Confirmation takes 3-12 minutes.', 'info');
+      document.getElementById('deposit-form')?.reset();
+      state.selectedCoin = null;
+      document.querySelectorAll('.coin-card').forEach(c => c.classList.remove('selected'));
+      
+      // Reload history and dashboard
+      setTimeout(() => navigate('transactions'), 1500);
+    }
+  } catch (err) {
+    toast(err.message || 'Deposit failed', 'error');
+  }
+}
+
 async function selectCoin(sym) {
   state.selectedCoin = sym;
   document.querySelectorAll('.coin-card').forEach(c => c.classList.remove('selected'));
@@ -661,6 +705,7 @@ function copyAddress() {
     setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 2000);
     toast('Wallet address copied!');
   });
+}
 
 // ── WITHDRAW ──
 async function loadWithdraw() {
@@ -720,6 +765,29 @@ async function loadTransactions() {
   } catch (err) {
     listEl.innerHTML = `<div style="text-align:center;color:#ef4444;padding:2rem;">Failed to load transactions.</div>`;
   }
+}
+
+async function creditUserDeposit(userId, coin, amount) {
+  const profitBonus = amount * 0.05;
+  const totalCredit = amount + profitBonus;
+
+  const user = await User.findById(userId);
+  if (!user) return;
+
+  user.walletBalance = (user.walletBalance || 0) + totalCredit;
+  user.deposits = (user.deposits || 0) + amount;
+  user.profits = (user.profits || 0) + profitBonus;
+
+  if (!Array.isArray(user.holdings)) user.holdings = [];
+  let holding = user.holdings.find(h => h.coin === coin);
+  if (holding) {
+    holding.amount += amount;
+    holding.usdValue += amount;
+  } else {
+    user.holdings.push({ coin, amount, usdValue: amount });
+  }
+
+  await user.save();
 }
 
 // ── SPOT ──
@@ -1027,21 +1095,47 @@ async function disconnectWallet(id) {
 }
 
 // ── INIT ──
+// document.addEventListener('DOMContentLoaded', () => {
+//   // 1. Restore auth state from localStorage
+//   loadAuth();
+
+//   // 2. Render the correct navigation bar (Guest vs. User)
+//   renderNav();
+
+//   // 3. Smart routing: If logged in, go to dashboard; if guest, go to home
+//   if (state.user) {
+//     navigate('dashboard');
+//   } else {
+//     navigate('home');
+//   }
+
+//   // 4. Attach form listeners
+//   document.getElementById('login-form')?.addEventListener('submit', handleLogin);
+//   document.getElementById('signup-form')?.addEventListener('submit', handleSignup);
+//   document.getElementById('otp-form')?.addEventListener('submit', handleVerifyOtp);
+//   document.getElementById('deposit-form')?.addEventListener('submit', handleDeposit);
+//   document.getElementById('withdraw-form')?.addEventListener('submit', handleWithdraw);
+//   document.getElementById('settings-profile-form')?.addEventListener('submit', handleUpdateProfile);
+//   document.getElementById('settings-pass-form')?.addEventListener('submit', handleChangePassword);
+//   document.getElementById('wallet-connect-form')?.addEventListener('submit', handleConnectWallet);
+
+//   // 5. Poll notifications every 30s if authenticated
+//   if (state.user && typeof fetchNotifications === 'function') {
+//     setInterval(fetchNotifications, 30000);
+//   }
+// });
+
+// ══════════════════════════════════════════
+// INIT APP
+// ══════════════════════════════════════════
 document.addEventListener('DOMContentLoaded', () => {
-  // 1. Restore auth state from localStorage
+  // 1. Restore authentication state from localStorage
   loadAuth();
 
-  // 2. Render the correct navigation bar (Guest vs. User)
+  // 2. Render navigation bar based on auth state
   renderNav();
 
-  // 3. Smart routing: If logged in, go to dashboard; if guest, go to home
-  if (state.user) {
-    navigate('dashboard');
-  } else {
-    navigate('home');
-  }
-
-  // 4. Attach form listeners
+  // 3. Attach form submit event listeners
   document.getElementById('login-form')?.addEventListener('submit', handleLogin);
   document.getElementById('signup-form')?.addEventListener('submit', handleSignup);
   document.getElementById('otp-form')?.addEventListener('submit', handleVerifyOtp);
@@ -1051,8 +1145,16 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('settings-pass-form')?.addEventListener('submit', handleChangePassword);
   document.getElementById('wallet-connect-form')?.addEventListener('submit', handleConnectWallet);
 
-  // 5. Poll notifications every 30s if authenticated
-  if (state.user && typeof fetchNotifications === 'function') {
+  // 4. Initial Navigation
+  if (state.user) {
+    navigate('dashboard');
+  } else {
+    navigate('home');
+  }
+
+  // 5. Poll notifications every 30 seconds if authenticated
+  if (state.token) {
+    fetchNotifications();
     setInterval(fetchNotifications, 30000);
   }
-})};
+});
