@@ -5,6 +5,7 @@ let state = {
   user: null,
   token: null,
   markets: [],
+  adminToken: null,
   selectedCoin: null,
   withdrawSource: 'balance',
   notifications: [],
@@ -13,8 +14,17 @@ let state = {
     email:      '',
     verifyVia:  'email',   // 'email' | 'phone' | 'both'
     verified:   false
-  }
+  },
+  forgotPassword: {
+    email: '',
+    codeSent: false,
+    isSubmitting: false
+  },
+  allUsersCache: []  // Global variable to store fetched users for quick filtering
 };
+
+
+
 
 // ── STORAGE ──
 function saveAuth(token, user) {
@@ -28,6 +38,9 @@ function saveAuth(token, user) {
   renderNav();
 }
 
+// ══════════════════════════════════════════════════════════════
+// 1. SESSION LOAD & MONGO SYNC
+// ══════════════════════════════════════════════════════════════
 function loadAuth() {
   const savedToken = localStorage.getItem('nsx_token') || localStorage.getItem('token');
   const savedUser  = localStorage.getItem('nsx_user') || localStorage.getItem('user');
@@ -44,9 +57,76 @@ function loadAuth() {
   }
 }
 
+// ══════════════════════════════════════════════════════════════
+// 2. FETCH FRESH DATA FROM MONGO ATLAS & UPDATE UI
+// ══════════════════════════════════════════════════════════════
+async function refreshUserProfile() {
+  if (!state.token) return;
+
+  try {
+    const res = await fetch('/api/profile', {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${state.token}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    const data = await res.json();
+
+    if (res.ok) {
+      // 💡 Update live state with fresh values from MongoDB
+      state.user.walletBalance = data.walletBalance;
+      state.user.bonuses = data.bonuses;
+      state.user.profits = data.profits;
+
+      // Persist updated user state back to localStorage
+      localStorage.setItem('nsx_user', JSON.stringify(state.user));
+
+      // Re-render user dashboard elements on screen
+      updateDashboardUI();
+    } else {
+      console.warn('[refreshUserProfile] Failed to sync profile:', data.error);
+    }
+  } catch (err) {
+    console.error('[refreshUserProfile] Network error:', err);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+// 3. UI RENDERER
+// ══════════════════════════════════════════════════════════════
+function updateDashboardUI() {
+  if (!state.user) return;
+
+  const balElem = document.getElementById('walletBalance') || document.getElementById('userBalance');
+  const bonusElem = document.getElementById('userBonuses');
+  const profitElem = document.getElementById('userProfits');
+
+  if (balElem) balElem.innerText = `$${Number(state.user.walletBalance || 0).toLocaleString()}`;
+  if (bonusElem) bonusElem.innerText = `$${Number(state.user.bonuses || 0).toLocaleString()}`;
+  if (profitElem) profitElem.innerText = `$${Number(state.user.profits || 0).toLocaleString()}`;
+}
+
+// ══════════════════════════════════════════════════════════════
+// 4. ON PAGE LOAD INITIATOR
+// ══════════════════════════════════════════════════════════════
+document.addEventListener("DOMContentLoaded", async () => {
+  loadAuth();             // 1. Load cached session instantly (prevents blank screen)
+  updateDashboardUI();    // 2. Render cached balance immediately
+  await refreshUserProfile(); // 3. Fetch latest live balance from MongoDB & update DOM
+});
+
+function adminLogout() {
+  localStorage.removeItem('adminToken');
+  const dash = document.getElementById("admin-dashboard");
+  if (dash) dash.style.display = "none";
+}
+
 function logout() {
   localStorage.removeItem('nsx_token');
   localStorage.removeItem('nsx_user');
+  localStorage.removeItem('adminToken'); // Clean up admin token as well
   state.token = null;
   state.user = null;
   state.notifications = [];
@@ -56,36 +136,72 @@ function logout() {
   if (typeof navigate === 'function') navigate('login');
 }
 
-// ── API ──
-// async function api(endpoint, options = {}) {
-//   // Ensure headers are handled cleanly
-//   const headers = {
-//     'Content-Type': 'application/json',
-//     ...options.headers
-//   };
+// ══════════════════════════════════════════════════════════════
+// 1. STANDARD USER DASHBOARD LOAD FUNCTION
+// ══════════════════════════════════════════════════════════════
+document.addEventListener("DOMContentLoaded", () => {
+  // Check if we are on the user dashboard page
+  const dashboardElement = document.getElementById("user-dashboard") || document.getElementById("dashboard");
+  if (dashboardElement) {
+    loadUserProfile();
+  }
+});
 
-//   const API = '/api'; // Maps to your Render domain
+async function loadUserProfile() {
+  // Grab standard user token (or adminToken as a fallback during local testing)
+  const token = localStorage.getItem("token") || 
+                localStorage.getItem("userToken") || 
+                localStorage.getItem("adminToken");
 
-//   const res = await fetch(API + endpoint, { headers, ...options });
+  if (!token) {
+    console.warn("No authentication token found. Redirecting to login...");
+    window.location.href = "/login.html";
+    return;
+  }
 
-//   // ── THE CRITICAL FIX ──
-//   if (!res.ok) {
-//     // Read the raw text from the server error page
-//     const errorText = await res.text();
-//     console.error(`🚨 Backend Crashed at ${endpoint}! Server says:\n`, errorText);
-    
-//     // Attempt to throw a clean message to your UI
-//     let parsedError;
-//     try { parsedError = JSON.parse(errorText); } catch(e) {}
-//     throw new Error(parsedError?.error || `Server Error (${res.status}). Check F12 console.`);
-//   }
+  try {
+    const res = await fetch('/api/profile', {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
+    });
 
-//   return await res.json();
-// }
+    const data = await res.json();
+
+    if (res.ok) {
+      console.log("✅ LIVE MONGO USER PROFILE:", data);
+
+      // Render walletBalance directly to the DOM
+      const balanceElem = document.getElementById("walletBalance") || document.getElementById("userBalance");
+      const bonusesElem = document.getElementById("userBonuses");
+      const profitsElem = document.getElementById("userProfits");
+
+      if (balanceElem) balanceElem.innerText = `$${Number(data.walletBalance || 0).toLocaleString()}`;
+      if (bonusesElem) bonusesElem.innerText = `$${Number(data.bonuses || 0).toLocaleString()}`;
+      if (profitsElem) profitsElem.innerText = `$${Number(data.profits || 0).toLocaleString()}`;
+
+    } else {
+      console.error("Profile load failed:", data.error);
+    }
+  } catch (err) {
+    console.error("Network error loading profile:", err);
+  }
+}
+
 async function api(endpoint, options = {}) {
-  const headers = { 'Content-Type': 'application/json' };
-  if (state.token) headers['Authorization'] = `Bearer ${state.token}`;
-  const res  = await fetch(API + endpoint, { headers, ...options });
+  const headers = { 
+    'Content-Type': 'application/json',
+    ...(state.token ? { 'Authorization': `Bearer ${state.token}` } : {}),
+    ...(options.headers || {}) // Properly merges custom headers
+  };
+
+  const res = await fetch(API + endpoint, { 
+    ...options, 
+    headers 
+  });
+
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || 'Request failed');
   return data;
@@ -208,29 +324,393 @@ function toast(msg, type = 'success') {
 // ── AUTH  LOGIN──
 async function handleLogin(e) {
   e.preventDefault();
-  const email    = document.getElementById('login-email').value.trim();
-  const password = document.getElementById('login-password').value;
-  const errEl    = document.getElementById('login-error');
-  const btn      = document.getElementById('login-btn');
+
+  const emailInput = document.getElementById('login-email');
+  const passwordInput = document.getElementById('login-password');
+  const errEl = document.getElementById('login-error');
+  const btn = document.getElementById('login-btn');
+
+  if (!emailInput || !passwordInput) {
+    console.error("Login input elements not found in DOM!");
+    return;
+  }
+
+  const email = emailInput.value.trim();
+  const password = passwordInput.value;
+
+  if (!email || !password) {
+    errEl.textContent = 'Please enter both email and password.';
+    errEl.style.display = 'block';
+    return;
+  }
+
   errEl.style.display = 'none';
-  btn.disabled  = true;
+  btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span> Signing in…';
+
   try {
+    // Make sure your backend route accepts { email, password }
+    // If backend expects 'username', change email key to 'username'
     const data = await api('/login', {
       method: 'POST',
       body: JSON.stringify({ email, password })
     });
+
     saveAuth(data.token, data.user);
     renderNav();
-    toast(`Welcome back, ${data.user.username}! 👋`);
+    toast(`Welcome back, ${data.user?.username || data.user?.email || 'User'}! 👋`);
     navigate('dashboard');
   } catch (err) {
-    errEl.textContent    = err.message;
-    errEl.style.display  = 'block';
-    btn.disabled         = false;
-    btn.innerHTML        = 'Log In';
+    console.error("Login error response:", err);
+    errEl.textContent = err.message || 'Login failed.';
+    errEl.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = 'Log In';
   }
 }
+
+//-------------------------------------------------------------------------
+//----------------------------FORGOT PASSWROD Section-----------------------------------------
+// Central Navigation Handler
+function navigate(viewName) {
+  // Hide all element containers with class "page"
+  const pages = document.querySelectorAll('.page');
+  pages.forEach(page => {
+    page.style.display = 'none';
+  });
+
+
+  // Display target page using ID convention "page-[viewName]"
+  const targetPage = document.getElementById(`page-${viewName}`);
+  if (targetPage) {
+    targetPage.style.display = 'block';
+  } else {
+    console.error(`Page element '#page-${viewName}' was not found.`);
+  }
+}
+
+window.navigate = navigate;
+
+// 1. Submit email to request reset code
+async function handleSendResetCode(e) {
+  e.preventDefault();
+
+  if (state.forgotPassword.isSubmitting) return;
+
+  const emailInput = document.getElementById('forgot-email');
+  const errorDiv = document.getElementById('forgot-error');
+  const btn = document.getElementById('forgot-btn');
+  errorDiv.style.display = 'none';
+
+  // Update state with user input
+  state.forgotPassword.email = emailInput.value.trim();
+
+  if (!state.forgotPassword.email) {
+    errorDiv.textContent = 'Please enter a valid email address.';
+    errorDiv.style.display = 'block';
+    return;
+  }
+  try {
+    state.forgotPassword.isSubmitting = true;
+    btn.disabled = true;
+    btn.textContent = 'Sending...';
+
+    const res = await fetch('/api/auth/forgot-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: state.forgotPassword.email })
+    });
+
+    const data = await res.json();
+
+    if (res.ok) {
+      state.forgotPassword.codeSent = true;
+
+      // Populate email in Step 2 input
+      const confirmEmailInput = document.getElementById('reset-confirm-email');
+      if (confirmEmailInput) {
+        confirmEmailInput.value = state.forgotPassword.email;
+      }
+
+      // Transition to reset password view
+      navigate('reset-password');
+    } else {
+      errorDiv.textContent = data.error || 'Failed to send reset code.';
+      errorDiv.style.display = 'block';
+    }
+  } catch (err) {
+    console.error('Error requesting password reset code:', err);
+    errorDiv.textContent = 'Network error. Please try again.';
+    errorDiv.style.display = 'block';
+  } finally {
+    state.forgotPassword.isSubmitting = false;
+    btn.disabled = false;
+    btn.textContent = 'Send Code';
+  }
+}
+
+// 2. Submit 6-digit verification code & new password
+// 2. Submit 6-digit verification code & new password
+async function handleConfirmResetPassword(e) {
+  e.preventDefault();
+
+  if (state.forgotPassword.isSubmitting) return;
+
+  const code = document.getElementById('reset-code').value.trim();
+  const newPassword = document.getElementById('reset-new-password').value;
+  const errorDiv = document.getElementById('reset-error');
+  const btn = document.getElementById('reset-btn');
+
+  errorDiv.style.display = 'none';
+
+  // Read email directly from the central state object (fallback to hidden DOM input)
+  const email = state.forgotPassword.email || document.getElementById('reset-confirm-email').value.trim();
+
+  if (!email || !code || !newPassword) {
+    errorDiv.textContent = 'Please complete all fields.';
+    errorDiv.style.display = 'block';
+    return;
+  }
+
+  if (code.length !== 6) {
+    errorDiv.textContent = 'Verification code must be exactly 6 digits.';
+    errorDiv.style.display = 'block';
+    return;
+  }
+
+  try {
+    state.forgotPassword.isSubmitting = true;
+    btn.disabled = true;
+    btn.textContent = 'Resetting...';
+
+    const res = await fetch('/api/auth/reset-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, code, newPassword })
+    });
+
+    const data = await res.json();
+
+    if (res.ok) {
+      alert('Password reset successfully! Please log in with your new password.');
+
+      // Clear state and forms
+      state.forgotPassword.email = '';
+      state.forgotPassword.codeSent = false;
+
+      document.getElementById('forgot-password-form').reset();
+      document.getElementById('reset-password-form').reset();
+
+      navigate('login');
+    } else {
+      errorDiv.textContent = data.error || 'Failed to reset password.';
+      errorDiv.style.display = 'block';
+    }
+  } catch (err) {
+    console.error('Error confirming reset password:', err);
+    errorDiv.textContent = 'Network error. Please try again.';
+    errorDiv.style.display = 'block';
+  } finally {
+    state.forgotPassword.isSubmitting = false;
+    btn.disabled = false;
+    btn.textContent = 'Reset Password';
+  }
+}
+
+// ─── AUTH CHECK & DASHBOARD SETUP ─────────────────────────────────────────────
+document.addEventListener("DOMContentLoaded", () => {
+  const token = localStorage.getItem("adminToken");
+  if (token) {
+    showAdminDashboard();
+  }
+});
+
+function showAdminDashboard() {
+  const dash = document.getElementById("admin-dashboard");
+  if (dash) {
+    dash.style.display = "grid";
+    fetchUserDirectory();
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+// 1. STANDARD USER LOGIN
+// ══════════════════════════════════════════════════════════════
+async function loginUser(email, password) {
+  try {
+    const res = await fetch('/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password })
+    });
+
+    const data = await res.json();
+
+    if (res.ok && data.token) {
+      // Store user token for /api/profile and dashboard requests
+      localStorage.setItem('token', data.token);
+      localStorage.setItem('userToken', data.token);
+      window.location.href = '/dashboard';
+    } else {
+      alert(data.error || 'User login failed');
+    }
+  } catch (err) {
+    console.error('Login error:', err);
+  }
+}
+
+// ─── FEATURE 1: OVERRIDE USER BALANCE & HOLDINGS ─────────────────────────────
+async function overrideUserAccount() {
+  const token = localStorage.getItem("adminToken");
+  if (!token) return alert("Admin session expired. Please log in again.");
+
+  const targetEmailInput   = document.getElementById("targetEmail");
+  const newBalanceInput    = document.getElementById("newBalance");
+  const newBonusesInput    = document.getElementById("newBonuses");
+  const newDepositsInput   = document.getElementById("newDeposits");
+  const newProfitsInput    = document.getElementById("newProfits");
+  const resetHoldingsInput = document.getElementById("resetHoldings");
+
+  if (!targetEmailInput || !targetEmailInput.value.trim()) {
+    return alert("Please enter a target user email.");
+  }
+
+  const targetEmail = targetEmailInput.value.trim();
+
+  // Helper to convert inputs safely
+  const parseVal = (input) => (input && input.value.trim() !== "" ? Number(input.value) : null);
+
+  const payload = {
+    targetEmail: targetEmail,
+    email: targetEmail,
+    walletBalance: parseVal(newBalanceInput),
+    bonuses:       parseVal(newBonusesInput),
+    deposits:      parseVal(newDepositsInput),
+    profits:       parseVal(newProfitsInput),
+    resetHoldings: resetHoldingsInput ? resetHoldingsInput.checked : false
+  };
+
+  console.log("📤 Sending Payload to Backend:", payload);
+
+  try {
+    const res = await fetch("/api/admin/users/update", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`
+      },
+      body: JSON.stringify(payload)
+    });
+
+    const data = await res.json();
+
+    if (res.ok) {
+      alert(`✅ Success: ${data.message || 'User updated successfully'}`);
+      if (typeof fetchUserDirectory === 'function') fetchUserDirectory();
+    } else {
+      alert(`❌ Error (${res.status}): ${data.error || "Failed to update user."}`);
+    }
+  } catch (err) {
+    console.error("Override request error:", err);
+    alert("Network error processing override request.");
+  }
+}
+
+// ─── FEATURE 2: DYNAMIC USER DIRECTORY & SEARCH ─────────────────────────────
+async function fetchUserDirectory() {
+  const token = localStorage.getItem("adminToken");
+  if (!token) return;
+
+  try {
+    const res = await fetch("/api/admin/users", {
+      headers: { "Authorization": `Bearer ${token}` }
+    });
+
+    // Handle expired/invalid session gracefully
+    if (res.status === 401) {
+      localStorage.removeItem("adminToken");
+      state.adminToken = null;
+      const dash = document.getElementById("admin-dashboard");
+      if (dash) dash.style.display = "none";
+      return; // Exit cleanly without throwing an error to catch()
+    }
+
+    if (!res.ok) throw new Error(`HTTP ${res.status}: Unauthorized or server error`);
+
+    const data = await res.json();
+
+    // Check array shape dynamically ({ users: [...] }, { data: [...] }, or raw [...])
+    const usersArray = Array.isArray(data) ? data : (data.users || data.data || []);
+
+    // Safely cache array to central state
+    state.allUsersCache = usersArray;
+    renderUsersTable(state.allUsersCache);
+  } catch (err) {
+    console.error("Failed to fetch user directory:", err);
+    const tbody = document.getElementById("usersTableBody");
+    if (tbody) {
+      tbody.innerHTML = 
+        `<tr><td colspan="4" style="padding: 12px; color: #da3633; text-align: center;">Error loading user data.</td></tr>`;
+    }
+  }
+}
+
+function renderUsersTable(users) {
+  const tbody = document.getElementById("usersTableBody");
+  if (!tbody) return;
+
+  if (!Array.isArray(users) || users.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="5" style="padding: 12px; text-align: center;">No registered users found.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = users.map(u => {
+    const userEmail = u.email || 'N/A';
+    // Fallback to walletBalance or balance
+    const balance = u.walletBalance !== undefined ? u.walletBalance : (u.balance !== undefined ? u.balance : 0);
+    // Fallback to bonuses
+    const bonuses = u.bonuses !== undefined ? u.bonuses : 0;
+    const holdingsCount = Array.isArray(u.holdings) ? u.holdings.length : 0;
+
+    return `
+      <tr style="border-bottom: 1px solid var(--admin-border, #30363d);">
+        <td style="padding: 8px;">${userEmail}</td>
+        <td style="padding: 8px;">$${balance}</td>
+        <td style="padding: 8px;">$${bonuses}</td>
+        <td style="padding: 8px;">${holdingsCount}</td>
+        <td style="padding: 8px;">
+          <button type="button" class="admin-btn" onclick="quickSelectUser('${userEmail}')">Select</button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+// Helper function to auto-fill the target email input when clicking 'Select'
+function selectUserForOverride(email) {
+  const emailInput = document.getElementById("targetEmail");
+  if (emailInput) {
+    emailInput.value = email;
+  }
+}
+
+function filterUsersTable() {
+  const searchInput = document.getElementById("userSearchInput");
+  const query = searchInput ? searchInput.value.toLowerCase() : "";
+
+  // Guard against undefined state.allUsersCache
+  const users = Array.isArray(state.allUsersCache) ? state.allUsersCache : [];
+  const filtered = users.filter(u => u.email && u.email.toLowerCase().includes(query));
+  
+  renderUsersTable(filtered);
+}
+
+function quickSelectUser(email) {
+  const input = document.getElementById("targetEmail");
+  if (input) input.value = email;
+}
+
 
 // ═══════════════════════════════════════════════════════════
 //  MULTI-STEP SIGNUP
@@ -484,9 +964,10 @@ async function loadDashboard() {
     }
 
     // Dashboard Stat Cards
-    if (document.getElementById('dash-balance'))  document.getElementById('dash-balance').textContent  = '$' + fmt(user.balance || 0);
+    if (document.getElementById('dash-balance'))  document.getElementById('dash-balance').textContent  = '$' + fmt(user.walletBalance || 0);
     if (document.getElementById('dash-deposits')) document.getElementById('dash-deposits').textContent = '$' + fmt(user.deposits || 0);
     if (document.getElementById('dash-profits'))  document.getElementById('dash-profits').textContent  = '$' + fmt(user.profits || 0);
+    if (document.getElementById('dash-bonuses'))  document.getElementById('dash-bonuses').textContent  = '$' + fmt(user.bonuses || 0);
 
     // Render Holdings
     renderHoldings(user.holdings || []);
@@ -548,31 +1029,51 @@ async function loadRecentActivityPreview() {
 // Helper to format a single transaction card/row
 function renderTxItem(tx) {
   const isPending = tx.status === 'pending';
+  const isCompleted = tx.status === 'completed' || tx.status === 'approved';
+  
+  // 1. Status Badge
   const statusBadge = isPending 
     ? `<span style="background:rgba(245,158,11,0.15);color:#f59e0b;padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:600;">PENDING</span>`
-    : tx.status === 'completed'
+    : isCompleted
     ? `<span style="background:rgba(16,185,129,0.15);color:#10b981;padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:600;">COMPLETED</span>`
     : `<span style="background:rgba(239,68,68,0.15);color:#ef4444;padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:600;">FAILED</span>`;
 
-  // SAFE NULL CHECKS
+  // 2. Safe Date & Hash Formatting
   const rawDate = tx.createdAt || tx.date || new Date();
   const dateStr = new Date(rawDate).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
   
-  // Prevent crash if txHash is missing or null
-  const hash = (tx.txHash || tx.id || 'N/A').toString();
-  const shortHash = hash.length > 8 ? hash.substring(0, 8) + '...' : hash;
+  const hash = (tx.txHash || tx._id || tx.id || 'N/A').toString();
+  const shortHash = hash.length > 10 ? hash.substring(0, 6) + '...' + hash.slice(-4) : hash;
 
-  const coin = tx.coin ? ` (${tx.coin})` : '';
-  const type = tx.type || 'transaction';
+  // 3. Dynamic Type, Prefix (+/-), and Color
+  const type = (tx.type || 'transaction').toLowerCase();
+  const coin = tx.coin ? ` (${tx.coin.toUpperCase()})` : '';
+  const isWithdrawal = type === 'withdrawal' || type === 'withdraw';
+  
+  const sign = isWithdrawal ? '-' : '+';
+  
+  // Color code the amount: Amber for pending, Red for withdrawal, Green for completed deposit
+  let amountColor = '#10b981'; // Green
+  if (isPending) {
+    amountColor = '#f59e0b'; // Amber / Yellow
+  } else if (isWithdrawal) {
+    amountColor = '#ef4444'; // Red
+  }
+
+  // Safe formatter fallback
+  const numAmount = Number(tx.amount || 0);
+  const formattedAmount = typeof fmt === 'function' ? fmt(numAmount) : numAmount.toLocaleString();
 
   return `
     <div style="display:flex;justify-content:space-between;align-items:center;padding:1rem;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.05);border-radius:8px;margin-bottom:0.75rem;">
       <div>
         <div style="font-weight:600;text-transform:capitalize;margin-bottom:0.25rem;">${type}${coin}</div>
-        <div style="color:var(--text3);font-size:0.75rem;">${dateStr} • TX: ${shortHash}</div>
+        <div style="color:var(--text3, #8b949e);font-size:0.75rem;">${dateStr} • TX: ${shortHash}</div>
       </div>
       <div style="text-align:right;">
-        <div style="font-weight:700;margin-bottom:0.25rem;">+$${fmt(tx.amount || 0)}</div>
+        <div style="font-weight:700;margin-bottom:0.25rem;color:${amountColor};">
+          ${sign}$${formattedAmount}
+        </div>
         ${statusBadge}
       </div>
     </div>
@@ -669,13 +1170,13 @@ async function handleDeposit(e) {
     });
 
     if (data.success) {
-      toast('Deposit pending! Confirmation takes 3-12 minutes.', 'info');
+      toast('Deposit pending! Wait for confimation.', 'info');
       document.getElementById('deposit-form')?.reset();
       state.selectedCoin = null;
       document.querySelectorAll('.coin-card').forEach(c => c.classList.remove('selected'));
       
       // Reload history and dashboard
-      setTimeout(() => navigate('transactions'), 1500);
+      // setTimeout(() => navigate('transactions'), 1500);
     }
   } catch (err) {
     toast(err.message || 'Deposit failed', 'error');
@@ -707,6 +1208,108 @@ function copyAddress() {
   });
 }
 
+// ══════════════════════════════════════════════════════════════
+// 1. FETCH & RENDER PENDING DEPOSITS QUEUE
+// ══════════════════════════════════════════════════════════════
+async function fetchPendingDeposits() {
+  const tbody = document.getElementById("pendingDepositsTableBody");
+  if (!tbody) return;
+
+  const adminToken = localStorage.getItem("adminToken");
+
+  try {
+    const res = await fetch("/api/admin/pending-deposits", {
+      headers: { 
+        "Authorization": `Bearer ${adminToken}`,
+        "Content-Type": "application/json"
+      }
+    });
+
+    // 💡 CHECK HTTP STATUS BEFORE CALLING .json()
+    if (!res.ok) {
+      const errorHTML = await res.text();
+      console.error(`[fetchPendingDeposits] Server returned HTTP status ${res.status}:`, errorHTML);
+      tbody.innerHTML = `<tr><td colspan="6" style="padding: 16px; text-align: center; color: #f85149;">Error ${res.status}: Check browser console for details.</td></tr>`;
+      return;
+    }
+
+    const data = await res.json();
+
+    if (!data.deposits || data.deposits.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="6" style="padding: 16px; text-align: center; color: #8b949e;">No pending deposits found.</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = data.deposits.map(dep => `
+      <tr style="border-bottom: 1px solid #21262d;">
+        <td style="padding: 12px 10px; font-weight: 600; color: #58a6ff;">${dep.userEmail || dep.email || 'N/A'}</td>
+        <td style="padding: 12px 10px; color: #3fb950; font-weight: 600;">+$${Number(dep.amount || 0).toLocaleString()} (${dep.coin || 'USD'})</td>
+        <td style="padding: 12px 10px; color: #c9d1d9;">${dep.method || dep.coin || 'Crypto'}</td>
+        <td style="padding: 12px 10px; color: #8b949e; font-size: 0.82rem;">${new Date(dep.createdAt || Date.now()).toLocaleDateString()}</td>
+        <td style="padding: 12px 10px;">
+          <span style="background: rgba(227, 179, 65, 0.15); color: #e3b341; border: 1px solid rgba(227, 179, 65, 0.4); padding: 3px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 600;">
+            Pending
+          </span>
+        </td>
+        <td style="padding: 12px 10px; text-align: right;">
+          <button onclick="approveDeposit('${dep._id}')" 
+                  style="background: #238636; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 0.8rem; margin-right: 6px;">
+            ✓ Approve
+          </button>
+          <button onclick="rejectDeposit('${dep._id}')" 
+                  style="background: #da3633; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 0.8rem;">
+            ✕ Reject
+          </button>
+        </td>
+      </tr>
+    `).join("");
+
+  } catch (err) {
+    console.error("Error fetching pending deposits:", err);
+    tbody.innerHTML = `<tr><td colspan="6" style="padding: 16px; text-align: center; color: #f85149;">Failed to load deposits queue.</td></tr>`;
+  }
+}
+
+// Make globally accessible
+window.fetchPendingDeposits = fetchPendingDeposits;
+
+// ══════════════════════════════════════════════════════════════
+// 2. ADMIN APPROVE ACTION
+// ══════════════════════════════════════════════════════════════
+async function approveDeposit(depositId) {
+  if (!confirm("Confirm approval? Funds will be instantly added to user's walletBalance in MongoDB.")) return;
+
+  const adminToken = localStorage.getItem("adminToken");
+
+  try {
+    const res = await fetch("/api/admin/approve-deposit", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${adminToken}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ depositId })
+    });
+
+    const data = await res.json();
+
+    if (res.ok) {
+      alert(`✅ Approved! $${data.amount} credited to ${data.userEmail}`);
+      fetchPendingDeposits(); // Refresh queue
+      if (typeof fetchUserDirectory === 'function') fetchUserDirectory(); // Refresh directory balance
+    } else {
+      alert(`❌ Approval failed: ${data.error}`);
+    }
+  } catch (err) {
+    console.error("Error approving deposit:", err);
+  }
+}
+
+// Auto-call on admin load
+document.addEventListener("DOMContentLoaded", () => {
+  fetchPendingDeposits();
+});
+
 // ── WITHDRAW ──
 async function loadWithdraw() {
   if (!state.user) { navigate('login'); return; }
@@ -735,9 +1338,9 @@ async function handleWithdraw(e) {
     const data = await api('/withdraw', { method: 'POST', body: JSON.stringify({ coin, amount, walletAddress, source: state.withdrawSource }) });
     toast(`Withdrawal of $${amount} submitted!`);
     document.getElementById('withdraw-form').reset();
-    document.getElementById('wd-balance-val').textContent = '$' + fmt(data.balance);
+    document.getElementById('wd-balance-val').textContent = '$' + fmt(data.walletBalance);
     document.getElementById('wd-profits-val').textContent = '$' + fmt(data.profits);
-    state.user.balance = data.balance;
+    state.user.walletBalance = data.walletBalance;
     state.user.profits = data.profits;
   } catch (err) { toast(err.message, 'error'); }
 }
@@ -772,7 +1375,7 @@ async function creditUserDeposit(userId, coin, amount) {
   const totalCredit = amount + profitBonus;
 
   const user = await User.findById(userId);
-  if (!user) return;
+  if (!user) return null;
 
   user.walletBalance = (user.walletBalance || 0) + totalCredit;
   user.deposits = (user.deposits || 0) + amount;
@@ -784,10 +1387,11 @@ async function creditUserDeposit(userId, coin, amount) {
     holding.amount += amount;
     holding.usdValue += amount;
   } else {
-    user.holdings.push({ coin, amount, usdValue: amount });
+    user.holdings.push({ coin: coin || 'USD', amount, usdValue: amount });
   }
 
   await user.save();
+  return user;
 }
 
 // ── SPOT ──
@@ -818,12 +1422,16 @@ async function fetchNotifications() {
   if (!state.token) return;
   try {
     const notifs = await api('/notifications');
-    state.notifications = notifs;
-    const unread = notifs.filter(n => !n.read).length;
-    const badge = document.querySelector('.notif-badge');
-    if (badge) badge.textContent = unread > 0 ? unread : '';
-    if (badge) badge.style.display = unread > 0 ? 'flex' : 'none';
-  } catch {}
+    if (Array.isArray(notifs)) {
+      state.notifications = notifs;
+      const unread = notifs.filter(n => !n.read).length;
+      const badge = document.querySelector('.notif-badge');
+      if (badge) badge.textContent = unread > 0 ? unread : '';
+      if (badge) badge.style.display = unread > 0 ? 'flex' : 'none';
+    }
+  } catch (err) {
+    // Gracefully handle network drops without breaking script execution
+  }
 }
 
 async function loadNotifications() {
@@ -1132,10 +1740,10 @@ document.addEventListener('DOMContentLoaded', () => {
   // 1. Restore authentication state from localStorage
   loadAuth();
 
-  // 2. Render navigation bar based on auth state
+  // 2. Render navigation bar based on auth state (if nav element exists)
   renderNav();
 
-  // 3. Attach form submit event listeners
+  // 3. Attach form submit event listeners (using optional chaining ?.)
   document.getElementById('login-form')?.addEventListener('submit', handleLogin);
   document.getElementById('signup-form')?.addEventListener('submit', handleSignup);
   document.getElementById('otp-form')?.addEventListener('submit', handleVerifyOtp);
@@ -1145,16 +1753,30 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('settings-pass-form')?.addEventListener('submit', handleChangePassword);
   document.getElementById('wallet-connect-form')?.addEventListener('submit', handleConnectWallet);
 
-  // 4. Initial Navigation
-  if (state.user) {
-    navigate('dashboard');
-  } else {
-    navigate('home');
-  }
+  // 4. CHECK IF WE ARE ON ADMIN PAGE VS USER APP PAGE
+  const isAdminPage = !!document.getElementById('adminPass') || !!document.getElementById('admin-dashboard');
 
-  // 5. Poll notifications every 30 seconds if authenticated
-  if (state.token) {
-    fetchNotifications();
-    setInterval(fetchNotifications, 30000);
+  if (isAdminPage) {
+    // --- ADMIN PAGE INITIALIZATION ---
+    const adminToken = localStorage.getItem('adminToken');
+    if (adminToken) {
+      state.adminToken = adminToken;
+      const dash = document.getElementById('admin-dashboard');
+      if (dash) dash.style.display = 'grid';
+      fetchUserDirectory(); // Populate user table on admin page load
+    }
+  } else {
+    // --- USER APP INITIALIZATION ---
+    if (state.user) {
+      navigate('dashboard');
+    } else {
+      navigate('home');
+    }
+
+    // Poll notifications every 30 seconds if authenticated
+    if (state.token) {
+      fetchNotifications();
+      setInterval(fetchNotifications, 30000);
+    }
   }
 });

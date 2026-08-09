@@ -480,6 +480,7 @@
 <!-- ══════════════════════════════════════════
      PAGE: LOGIN
 ══════════════════════════════════════════ -->
+<!-- LOGIN PAGE -->
 <div class="page" id="page-login">
   <div class="form-page">
     <div class="form-card">
@@ -488,23 +489,96 @@
         <div class="form-title">Welcome back</div>
         <div class="form-subtitle">Sign in to your NexaSpc account</div>
       </div>
- 
+
       <div class="alert alert-error" id="login-error" style="display:none"></div>
- 
+
       <form id="login-form">
         <div class="form-group">
           <label class="form-label">Email Address</label>
           <input class="form-input" type="email" id="login-email" placeholder="you@example.com" required>
         </div>
+        
         <div class="form-group">
           <label class="form-label">Password</label>
           <input class="form-input" type="password" id="login-password" placeholder="••••••••" required>
+          <!-- FORGOT PASSWORD LINK -->
+          <div style="text-align: right; margin-top: 0.35rem;">
+            <a href="#" onclick="event.preventDefault(); navigate('forgot-password')" style="font-size: 0.85rem; color: #3b82f6; text-decoration: none;">Forgot password?</a>
+          </div>
         </div>
+
         <button type="submit" id="login-btn" class="btn btn-primary btn-full" style="margin-top:0.5rem">Log In</button>
       </form>
- 
+
       <div class="form-footer">
         Don't have an account? <a href="#" onclick="navigate('signup')">Sign up free</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- STEP 1: FORGOT PASSWORD PAGE (REQUEST CODE) -->
+<div class="page" id="page-forgot-password" style="display:none">
+  <div class="form-page">
+    <div class="form-card">
+      <div style="text-align:center;margin-bottom:1.5rem">
+        <div class="logo-mark" style="margin:0 auto 0.75rem;width:44px;height:44px;font-size:16px">NX</div>
+        <div class="form-title">Forgot Password</div>
+        <div class="form-subtitle">Enter your email address to receive a 6-digit code</div>
+      </div>
+
+      <div class="alert alert-error" id="forgot-error" style="display:none"></div>
+      <div class="alert alert-success" id="forgot-success" style="display:none"></div>
+
+      <form id="forgot-password-form" onsubmit="handleSendResetCode(event)">
+        <div class="form-group">
+          <label class="form-label">Email Address</label>
+          <input class="form-input" type="email" id="forgot-email" placeholder="you@example.com" required>
+        </div>
+        
+        <button type="submit" id="forgot-btn" class="btn btn-primary btn-full" style="margin-top:0.5rem">Send Code</button>
+      </form>
+
+      <div class="form-footer">
+        Remembered your password? <a href="#" onclick="event.preventDefault(); navigate('login')">Back to login</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- STEP 2: RESET PASSWORD PAGE (VERIFY CODE & NEW PASSWORD) -->
+<div class="page" id="page-reset-password" style="display:none">
+  <div class="form-page">
+    <div class="form-card">
+      <div style="text-align:center;margin-bottom:1.5rem">
+        <div class="logo-mark" style="margin:0 auto 0.75rem;width:44px;height:44px;font-size:16px">NX</div>
+        <div class="form-title">Set New Password</div>
+        <div class="form-subtitle">Enter the code sent to your email along with your new password</div>
+      </div>
+
+      <div class="alert alert-error" id="reset-error" style="display:none"></div>
+
+      <form id="reset-password-form" onsubmit="handleConfirmResetPassword(event)">
+        <div class="form-group">
+          <label class="form-label">Email Address</label>
+          <input class="form-input" type="email" id="reset-confirm-email" placeholder="you@example.com" required readonly style="opacity: 0.7; cursor: not-allowed;">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">6-Digit Verification Code</label>
+          <input class="form-input" type="text" id="reset-code" maxlength="6" placeholder="123456" style="letter-spacing: 4px; text-align: center; font-weight: bold;" required>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">New Password</label>
+          <input class="form-input" type="password" id="reset-new-password" placeholder="••••••••" required minlength="6">
+        </div>
+
+        <button type="submit" id="reset-btn" class="btn btn-primary btn-full" style="margin-top:0.5rem">Reset Password</button>
+      </form>
+
+      <div class="form-footer">
+        Didn't receive a code? <a href="#" onclick="event.preventDefault(); navigate('forgot-password')">Resend code</a>
       </div>
     </div>
   </div>

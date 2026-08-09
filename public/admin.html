@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NexaSpc — Digital Asset Trading Platform</title>
+  <link rel="icon" type="image/png" sizes="48x48" href="/img/NS.png"/>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+    <h2>NexaSpc Admin Control Panel</h2>
+
+  <div class="admin-container">
+    
+    <!-- Card 1: Admin Authentication -->
+    <div class="card">
+      <h3>Admin Login</h3>
+      <div class="form-group">
+        <label for="adminPass">Admin Secret Password</label>
+        <input type="password" id="adminPass" placeholder="Enter admin password">
+      </div>
+      <button onclick="loginAdmin()">Authenticate</button>
+    </div>
+
+  </div>
+
+  <!-- ADMIN MANAGEMENT DASHBOARD -->
+<div id="admin-dashboard" class="admin-container" style="display: none;">
+  
+  <!-- CARD 1: OVERRIDE USER METRICS & COINS -->
+<div class="admin-card">
+  <h3>Override User Balance & Holdings</h3>
+  
+  <div class="admin-form-group">
+    <label for="targetEmail">Target User Email</label>
+    <input type="email" id="targetEmail" placeholder="user@example.com" required>
+  </div>
+
+  <div class="admin-form-group">
+    <label for="newBalance">New Wallet Balance ($)</label>
+    <input type="number" id="newBalance" placeholder="Enter new balance (e.g., 1000)">
+  </div>
+
+  <div class="admin-form-group">
+    <label for="newBonuses">New Bonuses ($)</label>
+    <input type="number" id="newBonuses" placeholder="Enter new bonuses (e.g., 500)">
+  </div>
+
+  <!-- ADDED: Total Deposits Field -->
+  <div class="admin-form-group">
+    <label for="newDeposits">New Total Deposits ($)</label>
+    <input type="number" id="newDeposits" placeholder="Enter new deposits (e.g., 2000)">
+  </div>
+
+  <!-- ADDED: Profits Earned Field -->
+  <div class="admin-form-group">
+    <label for="newProfits">New Profits Earned ($)</label>
+    <input type="number" id="newProfits" placeholder="Enter new profits (e.g., 300)">
+  </div>
+
+  <label class="admin-checkbox-group">
+    <input type="checkbox" id="resetHoldings">
+    <span>Reset all coin holdings array (`[]`)</span>
+  </label>
+
+  <button type="button" class="admin-btn admin-btn-danger" onclick="overrideUserAccount()">Apply Account Override</button>
+</div>
+
+  <!-- ══════════════════════════════════════════════════════════════ -->
+<!-- CARD 1: PENDING DEPOSITS QUEUE (ADMIN APPROVAL) -->
+<!-- ══════════════════════════════════════════════════════════════ -->
+<div class="admin-card" style="grid-column: span 2; margin-bottom: 24px;">
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+    <h3 style="margin: 0; font-size: 1.1rem; color: #f0f6fc; display: flex; align-items: center; gap: 8px;">
+      <span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background-color: #e3b341;"></span>
+      Pending Deposits Queue
+    </h3>
+    <button onclick="fetchPendingDeposits()" style="background: transparent; border: 1px solid #30363d; color: #c9d1d9; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 0.8rem;">
+      🔄 Refresh
+    </button>
+  </div>
+
+  <div style="overflow-x: auto;">
+    <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.9rem;">
+      <thead>
+        <tr style="border-bottom: 1px solid var(--admin-border, #30363d); color: var(--admin-text-muted, #8b949e);">
+          <th style="padding: 10px;">User Email</th>
+          <th style="padding: 10px;">Amount ($)</th>
+          <th style="padding: 10px;">Payment Method</th>
+          <th style="padding: 10px;">Date</th>
+          <th style="padding: 10px;">Status</th>
+          <th style="padding: 10px; text-align: right;">Action</th>
+        </tr>
+      </thead>
+      <tbody id="pendingDepositsTableBody">
+        <tr><td colspan="6" style="padding: 16px; text-align: center; color: #8b949e;">Loading pending deposits...</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<!-- CARD 2: REGISTERED USERS DIRECTORY -->
+<!-- ══════════════════════════════════════════════════════════════ -->
+<div class="admin-card" style="grid-column: span 2;">
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+    <h3 style="margin: 0; font-size: 1.1rem; color: #f0f6fc;">Registered Users Directory</h3>
+  </div>
+  
+  <div class="admin-form-group" style="margin-bottom: 16px;">
+    <input type="text" id="userSearchInput" placeholder="🔍 Search by user email..." onkeyup="filterUsersTable()" 
+           style="width: 100%; padding: 10px 14px; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; color: #c9d1d9; font-size: 0.9rem;">
+  </div>
+
+  <div style="overflow-x: auto;">
+    <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.9rem;">
+      <thead>
+        <tr style="border-bottom: 1px solid var(--admin-border, #30363d); color: var(--admin-text-muted, #8b949e);">
+          <th style="padding: 10px;">User Email</th>
+          <th style="padding: 10px;">Wallet Balance ($)</th>
+          <th style="padding: 10px;">Bonuses ($)</th>
+          <th style="padding: 10px;">Holdings</th>
+          <th style="padding: 10px; text-align: right;">Actions</th>
+        </tr>
+      </thead>
+      <tbody id="usersTableBody">
+        <tr><td colspan="5" style="padding: 16px; text-align: center; color: #8b949e;">Loading users...</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+</div>
+<script src="script.js"></script>
+</body>
+</html>
