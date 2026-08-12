@@ -14,7 +14,7 @@ const userSchema = new mongoose.Schema({
   // ... your existing fields (email, password, etc.)
 
   resetOtp: {type: String, default: null},
-  resetOtpExpires: {type: Date, default: null}, 
+  resetOtpExpiry: {type: Date, default: null}, 
   
   // Holdings breakdown per coin
   holdings: [{
@@ -24,6 +24,6 @@ const userSchema = new mongoose.Schema({
   }],
   
   createdAt: { type: Date, default: Date.now }
-}, { timestamps: true });
+});
 
 module.exports = mongoose.model('User', userSchema, 'users');

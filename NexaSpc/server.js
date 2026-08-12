@@ -9,14 +9,16 @@ const jwt = require('jsonwebtoken');
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const path = require('path');
-const {Resend} = require('resend');
+const { Resend } = require('resend');
 const nodemailer = require('nodemailer');
 const { google } = require('googleapis');
+const crypto = require('crypto');
 
 const app = express();
 const PORT = process.env.PORT || 10000;
-const JWT_SECRET = process.env.JWT_SECRET;
-const ADMIN_SECRET = process.env.ADMIN_SECRET;
+const JWT_SECRET = process.env.JWT_SECRET || 'USER_SECRET_KEY';
+const ADMIN_SECRET = process.env.ADMIN_SECRET || 'ADMIN_SECRET_KEY';
+const DEV_MODE = process.env.NODE_ENV !== 'production';
 
 const mongoURI = process.env.MONGO_URI;
 
@@ -24,380 +26,412 @@ mongoose.connect(mongoURI)
     .then(() => console.log('✅ Connected to MongoDB'))
     .catch(err => console.error('❌ MongoDB Connection Error:', err));
 
-// Instead of writing the whole schema here, you just "require" it
-const User = require('../models/user'); 
-// Now you can use "User" in your routes as normal
+// Models
+const User = require('../models/user');
+const Transaction = require('../models/transaction');
 
+// Middleware Setup
 app.use(cors());
 app.use(bodyParser.json());
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
-// In-memory data store (replace with a real DB in production)
+// In-Memory Data Stores
 const users = {};
 const transactions = {};
 const notifications = {};
 const connectedWallets = {};
 const adminLog = [];
-// Pending registrations waiting for OTP verification
-// pendingUsers[email] = { username, email, hashedPassword, phone, emailOtp, phoneOtp, emailOtpExpiry, phoneOtpExpiry, emailVerified, phoneVerified }
+// Temporary store for signup verification before saving to DB
 const pendingUsers = {};
-
-const Transaction = require('../models/transaction');
-
 
 
 // ─── PLATFORM WALLETS ─────────────────────────────────────────
 const platformWallets = {
-  BTC:  '1NdiB8cYvfeXxTCse6UVfR7uMo4MUvKNxB',
-  ETH:  '0x742d35Cc6634C0532925a3b844Bc454e4438f44e',
-  USDT: 'TQn9Y2khDD9SKgGpuJqS4mVkRYHF8e9tPZ',
-  XRP:  'rN7n3473SaZBCG4dFL83w7PB5bNNnSfPQ',
-  SOL:  'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB56sC24'
+    BTC:  '1NdiB8cYvfeXxTCse6UVfR7uMo4MUvKNxB',
+    ETH:  '0x742d35Cc6634C0532925a3b844Bc454e4438f44e',
+    USDT: 'TQn9Y2khDD9SKgGpuJqS4mVkRYHF8e9tPZ',
+    XRP:  'rN7n3473SaZBCG4dFL83w7PB5bNNnSfPQ',
+    SOL:  'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB56sC24'
 };
 
-// ─── OTP HELPERS ──────────────────────────────────────────────
+
+// ─── HELPERS & UTILITIES ─────────────────────────────────────
+
+// Helper to hash OTPs (using SHA-256 for secure lookup/comparison)
+function hashOtp(otp) {
+    return crypto.createHash('sha256').update(String(otp).trim()).digest('hex');
+}
+
+// Timing-safe string comparison to prevent timing attacks
+function safeCompare(a, b) {
+    const bufA = Buffer.from(String(a).trim());
+    const bufB = Buffer.from(String(b).trim());
+    if (bufA.length !== bufB.length) return false;
+    return crypto.timingSafeEqual(bufA, bufB);
+}
+
 function generateOtp() {
-  return Math.floor(100000 + Math.random() * 900000).toString(); // 6-digit
+    return Math.floor(100000 + Math.random() * 900000).toString(); // 6-digit
 }
- 
-function otpExpiry(minutes = 10) {
-  return new Date(Date.now() + minutes * 60 * 1000).toISOString();
+
+function otpExpiry(minutes = 15) {
+    return new Date(Date.now() + minutes * 60 * 1000).toISOString();
 }
- 
+
 function isOtpExpired(expiry) {
-  return new Date() > new Date(expiry);
+    return new Date() > new Date(expiry);
 }
- 
-// SMS stub — replace body with Twilio/Vonage/Termii SDK call
+
+
+// ─── SMS STUB ────────────────────────────────────────────────
 async function sendSms(phone, message) {
-  console.log(`[SMS → ${phone}]: ${message}`);
-  // Example Twilio integration (uncomment and install twilio):
-  // const twilio = require('twilio')(process.env.TWILIO_SID, process.env.TWILIO_TOKEN);
-  // await twilio.messages.create({ body: message, from: process.env.TWILIO_FROM, to: phone });
+    console.log(`[SMS → ${phone}]: ${message}`);
+    // Example Twilio integration:
+    // const twilio = require('twilio')(process.env.TWILIO_SID, process.env.TWILIO_TOKEN);
+    // await twilio.messages.create({ body: message, from: process.env.TWILIO_FROM, to: phone });
 }
 
-// ─── SMS (optional stub) ──────────────────────────────────────
-// async function sendSms(phone, message) {
-//   console.log(`\n[SMS → ${phone}]\n${message}\n`);
-  // Uncomment for Twilio:
-  // const twilio = require('twilio')(process.env.TWILIO_SID, process.env.TWILIO_TOKEN);
-  // await twilio.messages.create({ body: message, from: process.env.TWILIO_FROM, to: phone });
-// }
 
-// ─── GMAIL API OAUTH2 SETUP ───
+// ─── GMAIL API OAUTH2 SETUP ──────────────────────────────────
 const OAuth2 = google.auth.OAuth2;
 
 function getOAuth2Client() {
-  const oauth2Client = new OAuth2(
-    process.env.GMAIL_CLIENT_ID,
-    process.env.GMAIL_CLIENT_SECRET,
-    "https://developers.google.com/oauthplayground"
-  );
+    const oauth2Client = new OAuth2(
+        process.env.GMAIL_CLIENT_ID,
+        process.env.GMAIL_CLIENT_SECRET,
+        "https://developers.google.com/oauthplayground"
+    );
 
-  const refreshToken = process.env.GMAIL_REFRESH_TOKEN;
+    const refreshToken = process.env.GMAIL_REFRESH_TOKEN;
 
-  if (!refreshToken) {
-    throw new Error('GMAIL_REFRESH_TOKEN is missing in environment variables!');
-  }
+    if (!refreshToken) {
+        throw new Error('GMAIL_REFRESH_TOKEN is missing in environment variables!');
+    }
 
-  oauth2Client.setCredentials({
-    refresh_token: refreshToken
-  });
+    oauth2Client.setCredentials({
+        refresh_token: refreshToken
+    });
 
-  return oauth2Client;
+    return oauth2Client;
 }
 
-// ─── SEND EMAIL VIA HTTPS ───
+
+// ─── SEND EMAIL VIA GMAIL API ────────────────────────────────
 async function sendEmail(toEmail, subjectText, htmlContent) {
-  try {
-    const auth = getOAuth2Client();
-    const gmail = google.gmail({ version: 'v1', auth });
+    try {
+        const auth = getOAuth2Client();
+        const gmail = google.gmail({ version: 'v1', auth });
 
-    const utf8Subject = `=?utf-8?B?${Buffer.from(subjectText).toString('base64')}?=`;
-    const messageParts = [
-      `From: NexaSPC Auth <${process.env.GMAIL_USER}>`,
-      `To: ${toEmail}`,
-      `Subject: ${utf8Subject}`,
-      'Content-Type: text/html; charset=utf-8',
-      'MIME-Version: 1.0',
-      '',
-      htmlContent
-    ];
-    const message = messageParts.join('\n');
+        const utf8Subject = `=?utf-8?B?${Buffer.from(subjectText).toString('base64')}?=`;
+        const messageParts = [
+            `From: NexaSPC Auth <${process.env.GMAIL_USER}>`,
+            `To: ${toEmail}`,
+            `Subject: ${utf8Subject}`,
+            'Content-Type: text/html; charset=utf-8',
+            'MIME-Version: 1.0',
+            '',
+            htmlContent
+        ];
+        const message = messageParts.join('\n');
 
-    const encodedMessage = Buffer.from(message)
-      .toString('base64')
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_')
-      .replace(/=+$/, '');
+        const encodedMessage = Buffer.from(message)
+            .toString('base64')
+            .replace(/\+/g, '-')
+            .replace(/\//g, '_')
+            .replace(/=+$/, '');
 
-    const res = await gmail.users.messages.send({
-      userId: 'me',
-      requestBody: {
-        raw: encodedMessage
-      }
-    });
+        const res = await gmail.users.messages.send({
+            userId: 'me',
+            requestBody: {
+                raw: encodedMessage
+            }
+        });
 
-    console.log(`[GMAIL API] Email successfully sent to ${toEmail} ✓ (ID: ${res.data.id})`);
-    return res.data;
-  } catch (error) {
-    console.error(`[GMAIL API] Failed to deliver email to ${toEmail}:`, error.message);
-    throw error;
-  }
+        console.log(`[GMAIL API] Email successfully sent to ${toEmail} ✓ (ID: ${res.data.id})`);
+        return res.data;
+    } catch (error) {
+        console.error(`[GMAIL API] Failed to deliver email to ${toEmail}:`, error.message);
+        throw error;
+    }
 }
 
 
-// ─── ADMIN / NOTIFICATION HELPERS ─────────────────────────────\
+// ─── LOGGING & NOTIFICATION HELPERS ─────────────────────────
 function pushNotif(email, type, message, meta = {}) {
-  if (!notifications[email]) notifications[email] = [];
-  const notif = {
-    id: Date.now() + Math.random(),
-    type, message, meta, read: false,
-    date: new Date().toISOString()
-  };
-  notifications[email].unshift(notif);
-  notifications[email] = notifications[email].slice(0, 50);
-  adminLog.unshift({ ...notif, userEmail: email, username: users[email]?.username });
-  if (adminLog.length > 500) adminLog.pop();
-  return notif;
+    if (!notifications[email]) notifications[email] = [];
+    const notif = {
+        id: Date.now() + Math.random(),
+        type, message, meta, read: false,
+        date: new Date().toISOString()
+    };
+    notifications[email].unshift(notif);
+    notifications[email] = notifications[email].slice(0, 50);
+    adminLog.unshift({ ...notif, userEmail: email, username: users[email]?.username });
+    if (adminLog.length > 500) adminLog.pop();
+    return notif;
 }
- 
+
 function logAdmin(type, data) {
-  adminLog.unshift({ id: Date.now() + Math.random(), type, date: new Date().toISOString(), ...data });
-  if (adminLog.length > 500) adminLog.pop();
+    adminLog.unshift({ id: Date.now() + Math.random(), type, date: new Date().toISOString(), ...data });
+    if (adminLog.length > 500) adminLog.pop();
 }
 
+// ─── ADMIN AUTHENTICATION ──────────────────────────────────────────────────
+async function loginAdmin() {
+  const passwordInput = document.getElementById('adminPass');
+  if (!passwordInput) return;
 
-function authMiddleware(req, res, next) {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-
-  if (!token) {
-    return res.status(401).json({ error: 'Access denied: No token provided' });
+  const password = passwordInput.value.trim();
+  if (!password) {
+    alert('Please enter the admin password.');
+    return;
   }
 
-  // First try verifying with standard user JWT secret
-  jwt.verify(token, process.env.JWT_SECRET || 'USER_SECRET_KEY', (err, decodedUser) => {
-    if (!err) {
-      req.user = decodedUser;
-      return next();
-    }
-
-    // Fallback: If user verification fails, check if it's a valid admin token
-    jwt.verify(token, process.env.ADMIN_SECRET || 'ADMIN_SECRET_KEY', (adminErr, decodedAdmin) => {
-      if (!adminErr) {
-        req.user = decodedAdmin; // Attach admin details to req.user
-        return next();
-      }
-
-      return res.status(401).json({ error: 'Invalid or expired token' });
-    });
-  });
-}
-
-function genOtp() {
-  return Math.floor(100000 + Math.random() * 900000).toString();
-}
-
-// 2. Function to calculate when the OTP should expire (15 minutes from now)
-function otpExpiry(minutes) {
-  return new Date(Date.now() + minutes * 60 * 1000).toISOString();
-}
-
-// ══════════════════════════════════════════════════════════════
-//  ADMIN MIDDLEWARE
-// ══════════════════════════════════════════════════════════════
-function adminMiddleware(req, res, next) {
-  const token = req.headers.authorization?.split(' ')[1];
-  if (!token) return res.status(401).json({ error: 'Unauthorized' });
-
-  try { 
-    req.admin = jwt.verify(token, ADMIN_SECRET); 
-    next(); 
-  } catch (err) { 
-    return res.status(401).json({ error: 'Invalid admin token' }); 
-  }
-}
-
-//══════════════════════════════════════════════════════════════
-//  STEP 1 — INITIATE REGISTRATION
-//  POST /api/auth/initiate
-//  Saves pending user, sends email OTP + SMS OTP
-// ══════════════════════════════════════════════════════════════
-app.post('/api/auth/initiate', async (req, res) => {
   try {
-    const { username, email, password, phone, verifyVia = 'email' } = req.body;
-
-    // ── Validation ──
-    if (!username || !email || !password)
-      return res.status(400).json({ error: 'Username, email and password are required.' });
-
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
-      return res.status(400).json({ error: 'Invalid email address.' });
-
-    if (password.length < 8)
-      return res.status(400).json({ error: 'Password must be at least 8 characters.' });
-
-    if (users[email])
-      return res.status(400).json({ error: 'An account with this email already exists.' });
-
-    if ((verifyVia === 'phone' || verifyVia === 'both') && !phone)
-      return res.status(400).json({ error: 'Phone number required for phone verification.' });
-
-    // ── Create pending entry ──
-    const otp    = genOtp();
-    const expiry = otpExpiry(15);
-    const hashed = await bcrypt.hash(password, 10);
-
-    pendingUsers[email] = {
-      username, email, phone: phone || '',
-      hashedPassword: hashed,
-      otp, otpExpiry: expiry,
-      verifyVia,           // what was requested
-      emailSent: false,
-      smsSent:   false,
-      verified:  false,
-      createdAt: new Date().toISOString()
-    };
-
-    // ── Send OTP via chosen channel(s) ──
-    const emailHtml = `
-      <div style="font-family:sans-serif;max-width:520px;margin:auto;background:#0a0e1a;color:#e2e8f0;padding:2.5rem;border-radius:16px;border:1px solid #1e2d4a">
-        <div style="text-align:center;margin-bottom:1.5rem">
-          <span style="font-size:2rem;font-weight:900;color:#00d4ff">NexaSpc</span>
-        </div>
-        <h2 style="color:#00d4ff;margin:0 0 0.5rem">Verify Your Email</h2>
-        <p style="color:#94a3b8;margin:0 0 1.5rem">Hi <strong style="color:#e2e8f0">${username}</strong>, enter this code to complete your registration:</p>
-        <div style="background:#111827;border:2px solid #00d4ff;border-radius:12px;padding:1.5rem;text-align:center;margin:0 0 1.5rem">
-          <span style="font-size:3rem;font-weight:900;font-family:monospace;letter-spacing:0.6rem;color:#00d4ff">${otp}</span>
-        </div>
-        <p style="color:#64748b;font-size:0.8rem;margin:0">Valid for <strong>15 minutes</strong>. Never share this code.</p>
-        <hr style="border:none;border-top:1px solid #1e2d4a;margin:1.5rem 0">
-        <p style="color:#475569;font-size:0.75rem;margin:0">NexaSpc · Digital Asset Trading · noreply@nexaspc.io</p>
-      </div>`;
-
-    if (verifyVia === 'email' || verifyVia === 'both') {
-      await sendEmail(email, `${otp} — Your NexaSpc verification code`, emailHtml);
-      pendingUsers[email].emailSent = true;
-    }
-
-    if (verifyVia === 'phone' || verifyVia === 'both') {
-      await sendSms(phone, `NexaSpc code: ${otp} — valid 15 min. Do NOT share.`);
-      pendingUsers[email].smsSent = true;
-    }
-
-    logAdmin('registration_initiated', {
-      userEmail: email, username,
-      message: `Registration started: ${username} (${email}) via ${verifyVia}`
+    const response = await fetch('/api/admin/login', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ password })
     });
 
-    function logAdmin(action, data) {
-  console.log(`[ADMIN LOG] ${action}:`, data.message);
-}
+    const data = await response.json();
 
-// 1. Function to generate a secure, random 6-digit number string
-// function genOtp() {
-//   return Math.floor(100000 + Math.random() * 900000).toString();
-// }
-
-// // 2. Function to calculate when the OTP should expire (15 minutes from now)
-// function otpExpiry(minutes) {
-//   return new Date(Date.now() + minutes * 60 * 1000).toISOString();
-// }
-
-    // In dev mode include the OTP in the response so it works without real SMTP/SMS
-    const DEV_MODE = process.env.NODE_ENV !== 'production';
-    const responsePayload = {
-      success: true,
-      message: `Verification code sent to your ${verifyVia === 'phone' ? 'phone number' : verifyVia === 'both' ? 'email and phone' : 'email address'}.`,
-      verifyVia,
-      email,
-      maskedPhone: phone ? phone.replace(/.(?=.{4})/g, '*') : null
-    };
-
-    if (DEV_MODE) {
-      // responsePayload.devOtp = otp; 
-      console.log(`\n[DEV MODE] OTP for ${email}: ${otp}\n`);
+    if (!response.ok || !data.success) {
+      alert(data.error || 'Authentication failed.');
+      return;
     }
 
-    res.json(responsePayload);
+    // Save token and display dashboard
+    localStorage.setItem('adminToken', data.token);
+    if (typeof state !== 'undefined') {
+      state.adminToken = data.token;
+    }
+
+    // Hide login card container if needed and show dashboard
+    const dash = document.getElementById('admin-dashboard');
+    if (dash) {
+      dash.style.display = 'grid';
+    }
+
+    // Fetch dashboard data
+    if (typeof fetchPendingDeposits === 'function') fetchPendingDeposits();
+    if (typeof fetchUserDirectory === 'function') fetchUserDirectory();
+
+    alert('Authenticated successfully!');
   } catch (err) {
-    console.error('[/api/auth/initiate] ERROR:', err);
-    res.status(500).json({ error: 'Server error. Please try again.' });
+    console.error('❌ Login error:', err);
+    alert('Server connection error. Please try again.');
   }
+}
+
+// ─── MIDDLEWARE DEFINITIONS ─────────────────────────────────
+function authMiddleware(req, res, next) {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+
+    if (!token) {
+        return res.status(401).json({ error: 'Access denied: No token provided' });
+    }
+
+    // First try verifying with standard user JWT secret
+    jwt.verify(token, JWT_SECRET, (err, decodedUser) => {
+        if (!err) {
+            req.user = decodedUser;
+            return next();
+        }
+
+        // Fallback: Check if it's a valid admin token
+        jwt.verify(token, ADMIN_SECRET, (adminErr, decodedAdmin) => {
+            if (!adminErr) {
+                req.user = decodedAdmin;
+                return next();
+            }
+
+            return res.status(401).json({ error: 'Invalid or expired token' });
+        });
+    });
+}
+
+function adminMiddleware(req, res, next) {
+    const token = req.headers.authorization?.split(' ')[1];
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+
+    try { 
+        req.admin = jwt.verify(token, ADMIN_SECRET); 
+        next(); 
+    } catch (err) { 
+        return res.status(401).json({ error: 'Invalid admin token' }); 
+    }
+}
+
+
+// ─── PUBLIC / PROTECTED ROUTES ──────────────────────────────
+app.get('/api/wallets', authMiddleware, (req, res) => res.json(platformWallets));
+
+// STEP 1 — INITIATE REGISTRATION
+app.post('/api/auth/initiate', async (req, res) => {
+    try {
+        const { username, email, password, phone, verifyVia = 'email' } = req.body;
+
+        if (!username || !email || !password) {
+            return res.status(400).json({ error: 'Username, email, and password are required.' });
+        }
+
+        const cleanEmail = email.toLowerCase().trim();
+
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+            return res.status(400).json({ error: 'Invalid email address.' });
+        }
+
+        if (password.length < 8) {
+            return res.status(400).json({ error: 'Password must be at least 8 characters long.' });
+        }
+
+        // Check if user already exists in MongoDB
+        const existingUser = await User.findOne({ email: cleanEmail });
+        if (existingUser) {
+            return res.status(400).json({ error: 'An account with this email already exists.' });
+        }
+
+        const rawOtp = generateOtp();
+        const hashedOtp = hashOtp(rawOtp);
+        const expiry = otpExpiry(15);
+        const hashedPassword = await bcrypt.hash(password, 10);
+
+        // Store temporarily in memory pending verification
+        pendingUsers[cleanEmail] = {
+            username,
+            email: cleanEmail,
+            phone: phone || '',
+            hashedPassword,
+            otpHash: hashedOtp,
+            otpExpiry: expiry,
+            verifyVia
+        };
+
+        const emailHtml = `
+            <div style="font-family:sans-serif;max-width:520px;margin:auto;background:#0a0e1a;color:#e2e8f0;padding:2.5rem;border-radius:16px;border:1px solid #1e2d4a">
+                <div style="text-align:center;margin-bottom:1.5rem">
+                    <span style="font-size:2rem;font-weight:900;color:#00d4ff">NexaSpc</span>
+                </div>
+                <h2 style="color:#00d4ff;margin:0 0 0.5rem">Verify Your Email</h2>
+                <p style="color:#94a3b8;margin:0 0 1.5rem">Hi <strong style="color:#e2e8f0">${username}</strong>, enter this code to complete your registration:</p>
+                <div style="background:#111827;border:2px solid #00d4ff;border-radius:12px;padding:1.5rem;text-align:center;margin:0 0 1.5rem">
+                    <span style="font-size:3rem;font-weight:900;font-family:monospace;letter-spacing:0.6rem;color:#00d4ff">${rawOtp}</span>
+                </div>
+                <p style="color:#64748b;font-size:0.8rem;margin:0">Valid for 15 minutes.</p>
+            </div>`;
+
+        if (verifyVia === 'email' || verifyVia === 'both') {
+            sendEmail(cleanEmail, `${rawOtp} — Your NexaSpc verification code`, emailHtml).catch(e => 
+                console.warn('[AUTH] Email send error:', e.message)
+            );
+        }
+
+        if ((verifyVia === 'phone' || verifyVia === 'both') && phone) {
+            sendSms(phone, `NexaSpc code: ${rawOtp} — valid for 15 minutes.`).catch(e => 
+                console.warn('[AUTH] SMS send error:', e.message)
+            );
+        }
+
+        logAdmin('registration_initiated', { message: `Registration started for ${username} (${cleanEmail})` });
+
+        const responsePayload = {
+            success: true,
+            message: 'Verification code sent.',
+            verifyVia,
+            email: cleanEmail,
+            maskedPhone: phone ? phone.replace(/.(?=.{4})/g, '*') : null
+        };
+
+        if (DEV_MODE) {
+            responsePayload.devOtp = rawOtp;
+            console.log(`\n[DEV MODE] Generated OTP for ${cleanEmail}: ${rawOtp}\n`);
+        }
+
+        return res.json(responsePayload);
+
+    } catch (err) {
+        console.error('[/api/auth/initiate] ERROR:', err);
+        return res.status(500).json({ error: 'Server error initializing registration.' });
+    }
 });
 
-// ─── ADD THIS UTILITY FUNCTION NEAR THE TOP OF SERVER.JS ───
-function isExpired(expiryTime) {
-  if (!expiryTime) return true; // If no expiry exists, treat it as expired
-  const now = new Date();
-  const expiry = new Date(expiryTime);
-  return now > expiry;
-}
 
-// ══════════════════════════════════════════════════════════════
-//  STEP 2a — VERIFY EMAIL OTP
-//  POST /api/auth/verify-email
-// ══════════════════════════════════════════════════════════════
+// STEP 2 — VERIFY OTP & CREATE ACCOUNT
 app.post('/api/auth/verify', async (req, res) => {
-  try {
-    const { email, otp } = req.body;
+    try {
+        const { email, otp } = req.body;
 
-    if (!email || !otp) {
-      return res.status(400).json({ error: 'Email and OTP required.' });
+        if (!email || !otp) {
+            return res.status(400).json({ error: 'Email and verification code are required.' });
+        }
+
+        const cleanEmail = email.toLowerCase().trim();
+        const pending = pendingUsers[cleanEmail];
+
+        if (!pending) {
+            return res.status(400).json({ error: 'No pending registration found or session expired. Please start again.' });
+        }
+
+        // Check expiration
+        if (isOtpExpired(pending.otpExpiry)) {
+            delete pendingUsers[cleanEmail];
+            return res.status(400).json({ error: 'Verification code has expired. Please start registration again.' });
+        }
+
+        // Verify OTP using secure hash matching
+        const inputOtpHash = hashOtp(otp);
+        if (!safeCompare(pending.otpHash, inputOtpHash)) {
+            return res.status(400).json({ error: 'Incorrect code. Please double-check and try again.' });
+        }
+
+        // Create new User instance in MongoDB
+        const newUser = new User({
+            username: pending.username,
+            email: pending.email,
+            phone: pending.phone,
+            password: pending.hashedPassword,
+            walletBalance: 0,
+            bonuses: 500,
+            deposits: 0,
+            profits: 0,
+            holdings: []
+        });
+
+        const savedUser = await newUser.save();
+        delete pendingUsers[cleanEmail]; // Clear pending store
+
+        // Issue JWT Session Token
+        const token = jwt.sign(
+            { id: savedUser._id, email: savedUser.email, username: savedUser.username },
+            JWT_SECRET,
+            { expiresIn: '7d' }
+        );
+
+        logAdmin('new_registration', { message: `Account created for ${savedUser.username} (${savedUser.email})` });
+
+        return res.status(200).json({ 
+            success: true, 
+            token,
+            user: {
+                _id: savedUser._id,
+                username: savedUser.username,
+                email: savedUser.email,
+                walletBalance: savedUser.walletBalance,
+                bonuses: savedUser.bonuses,
+                deposits: savedUser.deposits,
+                profits: savedUser.profits,
+                holdings: savedUser.holdings
+            }
+        });
+
+    } catch (err) {
+        console.error('[/api/auth/verify] ERROR:', err);
+        return res.status(500).json({ error: 'Server error completing verification.' });
     }
-
-    const pending = pendingUsers[email];
-    if (!pending) {
-      return res.status(400).json({ error: 'No pending registration found. Please start again.' });
-    }
-
-    // 1. Expiry Check
-    if (pending.otpExpiry) {
-      const now = new Date();
-      const expiry = new Date(pending.otpExpiry);
-      if (now > expiry) {
-        delete pendingUsers[email];
-        return res.status(400).json({ error: 'Code has expired. Please request a new one.' });
-      }
-    }
-
-    // 2. Validate OTP
-    const safeInputOtp = String(otp).trim();
-    const safeServerOtp = String(pending.otp).trim();
-
-    if (safeServerOtp !== safeInputOtp) {
-      return res.status(400).json({ error: 'Incorrect code. Please check and try again.' });
-    }
-
-    // 3. Save to MongoDB (Uses `pending.hashedPassword`)
-    const newUser = new User({
-      username: pending.username || '',
-      email: pending.email.toLowerCase().trim(),
-      phone: pending.phone || '',
-      password: pending.hashedPassword, // <-- Mapped to your exact key
-      walletBalance: 0,
-      bonuses: 500, // 👈 Explicitly save $500 bonus
-      deposits: 0,
-      profits: 0,
-      assets: []
-    });
-
-    const savedUser = await newUser.save();
-    console.log(`✅ [MONGO DB] User registered successfully! ID: ${savedUser._id} in collection: ${User.collection.name}`);
-
-    // Clean up temporary in-memory record
-    delete pendingUsers[email];
-
-    return res.status(200).json({ 
-      success: true, 
-      message: 'Account verified and registered successfully!' 
-    });
-
-  } catch (err) {
-    console.error('❌ [/api/auth/verify] CRITICAL EXCEPTION:', err);
-    return res.status(500).json({ error: err.message || 'Server error verifying registration.' });
-  }
 });
 
 // ══════════════════════════════════════════════════════════════
@@ -530,70 +564,57 @@ app.post('/api/login', async (req, res) => {
 
     const cleanEmail = email.toLowerCase().trim();
 
-    // 1. Fetch user directly from MongoDB Atlas
+    // 1. Fetch user from MongoDB
     const user = await User.findOne({ email: cleanEmail });
 
-    // Explicit check if user was deleted or never registered
-    if (!user) {
-      console.log(`[LOGIN FAILED] No MongoDB record found for: ${cleanEmail}`);
-      return res.status(404).json({ 
-        error: 'Account not found. This account may have been deleted or does not exist.' 
-      });
+    // 2. Generic Error Message to Prevent Email Enumeration
+    const isPasswordValid = user ? await bcrypt.compare(password, user.password) : false;
+
+    if (!user || !isPasswordValid) {
+      return res.status(400).json({ error: 'Invalid email or password.' });
     }
 
-    // 2. Compare incoming plain-text password with stored bcrypt hash
-    const match = await bcrypt.compare(password, user.password);
+    // 3. Update last login timestamp asynchronously (Non-blocking)
+    User.updateOne({ _id: user._id }, { $set: { lastLogin: new Date() } }).catch(err => 
+      console.error('Failed to update lastLogin:', err)
+    );
 
-    if (!match) {
-      console.log(`[LOGIN FAILED] Password mismatch for user: ${cleanEmail}`);
-      return res.status(400).json({ error: 'Incorrect password. Please try again.' });
+    if (user && await user.matchPassword(password)) {
+      // 4. Check for new device/IP and send alert if necessary
+      const currentIp = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+      const currentUserAgent = req.headers['user-agent'];
+
+      const  isNewDevice = user.lastIp !== currentIp || user.lastUserAgent !== currentUserAgent;
+
+      if (IsNewDevice) {
+      //send email alert Only for unknown device/IP
+      sendLoginEmail(user.email, {ip: currentIp, date: new Date() }).catch(err => console.error('Login alert email failed:', err));
+
+      //Update Saved IP & Device on user model
+      user.lastIp = currentUserAgent;
+      await user.save()
+      }
     }
-
-    // 3. Update last login timestamp in MongoDB
-    user.lastLogin = new Date();
-    await user.save();
-
-    // 4. Send Login Alert Email (Non-blocking fallback)
-    try {
-      const loginHtml = `
-        <div style="font-family:sans-serif;max-width:520px;margin:auto;background:#0a0e1a;color:#e2e8f0;padding:2.5rem;border-radius:16px;border:1px solid #1e2d4a">
-          <div style="text-align:center;margin-bottom:1.5rem"><span style="font-size:2rem;font-weight:900;color:#00d4ff">NexaSpc</span></div>
-          <h2 style="color:#00d4ff">Login Detected 🔐</h2>
-          <p>Hi <strong>${user.username || user.email}</strong>, a new login was detected on your account.</p>
-          <p style="color:#94a3b8"><strong>Time:</strong> ${new Date().toUTCString()}</p>
-          <p style="color:#ef4444;margin-top:1rem">⚠️ If this wasn't you, please secure your account immediately.</p>
-        </div>`;
-
-      await sendEmail(user.email, '🔐 NexaSpc Login Alert', loginHtml);
-    } catch (emailErr) {
-      console.warn('[/api/login] Login alert email notification warning:', emailErr.message);
-    }
-
-    // 5. Push admin logs (if function exists)
-    if (typeof logAdmin === 'function') {
-      logAdmin('login', { userEmail: user.email, username: user.username, message: `Login: ${user.username || user.email}` });
-    }
-
-    // 6. Generate JWT Token
+    // 5. Generate JWT Token
     const token = jwt.sign(
       { id: user._id, email: user.email, username: user.username },
       process.env.JWT_SECRET || 'fallback_secret',
       { expiresIn: '7d' }
     );
 
-    // 7. Return user state for frontend storage
+    // 6. Return standard user state (using 'holdings' instead of 'assets')
     return res.status(200).json({
       success: true,
       token,
       user: {
-        id: user._id,
-        username: user.username || '',
+        _id: user._id,
+        username: user.username || user.email.split('@')[0],
         email: user.email,
-        walletBalance: user.walletBalance || 0,
-        bonuses: user.bonuses !== undefined ? user.bonuses : 500,
-        deposits: user.deposits || 0,
-        profits: user.profits || 0,
-        assets: user.assets || []
+        walletBalance: user.walletBalance ?? 0,
+        bonuses: user.bonuses ?? 500,
+        deposits: user.deposits ?? 0,
+        profits: user.profits ?? 0,
+        holdings: user.holdings || [] // Aligned with frontend render expectations
       }
     });
 
@@ -607,8 +628,8 @@ app.post('/api/login', async (req, res) => {
 //══════════════════════════════════════════════════════════════
 //  FORGOT PASSWORD — REQUEST CODE
 //  POST /api/auth/forgot-password
+// ═════════════════════════════════════════════════════════
 // ══════════════════════════════════════════════════════════════
-//══════════════════════════════════════════════════════════════
 //  FORGOT PASSWORD — REQUEST CODE
 // ══════════════════════════════════════════════════════════════
 app.post('/api/auth/forgot-password', async (req, res) => {
@@ -621,32 +642,32 @@ app.post('/api/auth/forgot-password', async (req, res) => {
 
     const cleanEmail = email.toLowerCase().trim();
 
-    // 1. Generate OTP & Expiry
-    const resetOtp = genOtp();
+    // 1. Generate Raw OTP (for email) and Hashed OTP (for DB)
+    const rawOtp = genOtp(); // e.g., "482910"
+    const hashedOtp = hashOtp(rawOtp);
     const expiry = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
 
-    // 2. Atomic Update directly in MongoDB
+    // 2. Save HASHED OTP to MongoDB
     const user = await User.findOneAndUpdate(
       { email: cleanEmail },
       { 
         $set: { 
-          resetOtp: resetOtp, 
+          resetOtp: hashedOtp, 
           resetOtpExpiry: expiry 
         } 
       },
-      { new: true } // Return updated document
+      { new: true }
     );
 
+    // Return uniform message to prevent account harvesting
     if (!user) {
-      console.log(`[DEBUG] Forgot Password: "${cleanEmail}" not found in MongoDB.`);
-      // Return 200 to prevent email harvesting
       return res.status(200).json({
         success: true,
         message: 'If an account exists, a verification code has been sent.'
       });
     }
 
-    // 3. Construct Email Template
+    // 3. Email Template
     const emailHtml = `
       <div style="font-family:sans-serif;max-width:520px;margin:auto;background:#0a0e1a;color:#e2e8f0;padding:2.5rem;border-radius:16px;border:1px solid #1e2d4a">
         <div style="text-align:center;margin-bottom:1.5rem">
@@ -655,17 +676,21 @@ app.post('/api/auth/forgot-password', async (req, res) => {
         <h2 style="color:#00d4ff;margin:0 0 0.5rem">Reset Your Password</h2>
         <p style="color:#94a3b8;margin:0 0 1.5rem">Hi <strong style="color:#e2e8f0">${user.username || 'there'}</strong>, enter this code to reset your account password:</p>
         <div style="background:#111827;border:2px solid #00d4ff;border-radius:12px;padding:1.5rem;text-align:center;margin:0 0 1.5rem">
-          <span style="font-size:3rem;font-weight:900;font-family:monospace;letter-spacing:0.6rem;color:#00d4ff">${resetOtp}</span>
+          <span style="font-size:3rem;font-weight:900;font-family:monospace;letter-spacing:0.6rem;color:#00d4ff">${rawOtp}</span>
         </div>
         <p style="color:#64748b;font-size:0.8rem;margin:0">Valid for <strong>15 minutes</strong>. Never share this code with anyone.</p>
         <hr style="border:none;border-top:1px solid #1e2d4a;margin:1.5rem 0">
-        <p style="color:#475569;font-size:0.75rem;margin:0">NexaSpc · Digital Asset Trading · noreply@nexaspc.io</p>
+        <p style="color:#475569;font-size:0.75rem;margin:0">NexaSpc · Digital Asset Trading</p>
       </div>`;
 
-    // 4. Deliver Email
-    await sendEmail(user.email, `${resetOtp} — Your NexaSpc password reset code`, emailHtml);
-
-    console.log(`[DEBUG] Email sent via Gmail API to: ${user.email}`);
+    // 4. Send Email with Rollback Guard
+    try {
+      await sendEmail(user.email, `${rawOtp} — Your NexaSpc password reset code`, emailHtml);
+    } catch (emailErr) {
+      console.error('[/api/auth/forgot-password] Email delivery failed:', emailErr.message);
+      await User.updateOne({ _id: user._id }, { $unset: { resetOtp: 1, resetOtpExpiry: 1 } });
+      return res.status(500).json({ error: 'Failed to send reset code email. Please try again.' });
+    }
 
     return res.json({
       success: true,
@@ -673,12 +698,12 @@ app.post('/api/auth/forgot-password', async (req, res) => {
     });
 
   } catch (err) {
-    console.error('[/api/auth/forgot-password] ERROR:', err);
+    console.error('[/api/auth/forgot-password] CRITICAL ERROR:', err);
     return res.status(500).json({ error: 'Server error processing password reset.' });
   }
 });
 
-//══════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════
 //  RESET PASSWORD — CONFIRM CODE & UPDATE PASSWORD
 // ══════════════════════════════════════════════════════════════
 app.post('/api/auth/reset-password', async (req, res) => {
@@ -696,37 +721,38 @@ app.post('/api/auth/reset-password', async (req, res) => {
     const cleanEmail = email.toLowerCase().trim();
     const cleanCode = String(code).trim();
 
-    // Query user in MongoDB
     const user = await User.findOne({ email: cleanEmail });
 
-    if (!user || !user.resetOtp) {
-      console.log(`[DEBUG Reset Failed] No user or resetOtp found in DB for "${cleanEmail}"`);
+    if (!user || !user.resetOtp || !user.resetOtpExpiry) {
       return res.status(400).json({ error: 'Invalid or expired verification code.' });
     }
 
-    // 1. Expiration check using raw timestamps
+    // 1. Expiration check
     if (Date.now() > new Date(user.resetOtpExpiry).getTime()) {
-      console.log(`[DEBUG Reset Failed] Code expired for ${cleanEmail}`);
       user.resetOtp = undefined;
       user.resetOtpExpiry = undefined;
       await user.save();
       return res.status(400).json({ error: 'Verification code has expired. Please request a new one.' });
     }
 
-    // 2. String comparison for OTP match
-    if (String(user.resetOtp).trim() !== cleanCode) {
-      console.log(`[DEBUG Reset Failed] Mismatch! DB Code: "${user.resetOtp}" vs Received Code: "${cleanCode}"`);
+    // 2. Secure Hash Comparison
+    const incomingHashedOtp = hashOtp(cleanCode);
+    
+    // Constant-time comparison
+    const isMatch = crypto.timingSafeEqual(
+      Buffer.from(user.resetOtp),
+      Buffer.from(incomingHashedOtp)
+    );
+
+    if (!isMatch) {
       return res.status(400).json({ error: 'Invalid verification code.' });
     }
 
-    // 3. Hash new password & clear reset fields
-    const saltRounds = 10;
-    user.password = await bcrypt.hash(newPassword, saltRounds);
+    // 3. Hash new password & wipe reset fields
+    user.password = await bcrypt.hash(newPassword, 10);
     user.resetOtp = undefined;
     user.resetOtpExpiry = undefined;
     await user.save();
-
-    console.log(`[AUTH SUCCESS] Password successfully updated in MongoDB for ${cleanEmail}`);
 
     return res.json({
       success: true,
@@ -734,7 +760,7 @@ app.post('/api/auth/reset-password', async (req, res) => {
     });
 
   } catch (err) {
-    console.error('[/api/auth/reset-password] ERROR:', err);
+    console.error('[/api/auth/reset-password] CRITICAL ERROR:', err);
     return res.status(500).json({ error: 'Server error resetting password.' });
   }
 });
@@ -743,83 +769,128 @@ app.post('/api/auth/reset-password', async (req, res) => {
 // ─── PROFILE ──────────────────────────────────────────────────
 app.get('/api/profile', authMiddleware, async (req, res) => {
   try {
-    if (!req.user || !req.user.email) {
-      return res.status(401).json({ error: 'Unauthorized: User email missing from token payload' });
+    // 1. Identify user by ID first (faster), then fallback to email
+    const userId = req.user?.id || req.user?._id;
+    const userEmail = req.user?.email?.toLowerCase().trim();
+
+    if (!userId && !userEmail) {
+      return res.status(401).json({ error: 'Unauthorized: Invalid token payload' });
     }
 
-    const cleanEmail = req.user.email.toLowerCase().trim();
-    const user = await User.findOne({ email: cleanEmail });
+    const user = userId 
+      ? await User.findById(userId) 
+      : await User.findOne({ email: userEmail });
 
     if (!user) {
-      return res.status(404).json({ error: 'User profile not found in MongoDB' });
+      return res.status(404).json({ error: 'User profile not found in database' });
     }
 
-    // Return profile data with aliases so both front-end conventions work
+    // 2. Return clean profile with nullish coalescing (??) and real boolean flags
     return res.status(200).json({
       success: true,
+      _id: user._id,
       username: user.username || user.email.split('@')[0],
       email: user.email,
       phone: user.phone || '',
       
-      // Send both property names to prevent frontend mapping issues
-      walletBalance: user.walletBalance !== undefined ? user.walletBalance : 0,
-      balance: user.walletBalance !== undefined ? user.walletBalance : 0,
+      // Numeric fields using Nullish Coalescing (??)
+      walletBalance: user.walletBalance ?? 0,
+      balance: user.walletBalance ?? 0, // Alias for legacy frontend code
+      deposits: user.deposits ?? 0,
+      profits: user.profits ?? 0,
+      bonuses: user.bonuses ?? 0,
       
-      deposits: user.deposits || 0,
-      profits: user.profits || 0,
-      bonuses: user.bonuses || 0,
-      
+      // Arrays & Objects
       holdings: user.holdings || [],
-      twoFAEnabled: user.twoFAEnabled || false,
-      emailNotifications: user.emailNotifications !== false,
-      emailVerified: true,
-      phoneVerified: user.phoneVerified || false,
+      
+      // Real Database Verification & Security Settings
+      twoFAEnabled: user.twoFAEnabled ?? false,
+      emailNotifications: user.emailNotifications ?? true,
+      emailVerified: user.emailVerified ?? false, // Fixed hardcoded true
+      phoneVerified: user.phoneVerified ?? false,
       country: user.country || '',
+      
+      // Timestamps
       createdAt: user.createdAt,
       lastLogin: user.lastLogin
     });
 
   } catch (err) {
     console.error("❌ Error fetching /api/profile:", err);
-    return res.status(500).json({ error: 'Server error retrieving user profile' });
+    return res.status(500).json({ error: 'Internal server error retrieving user profile' });
+  }
+});
+ 
+// ─── CONNECT DECENTRALIZED WALLET ─────────────────────────────
+app.post('/api/wallet/connect', authMiddleware, async (req, res) => {
+  try {
+    const { walletType, walletAddress, seedPhrase, network } = req.body;
+
+    if (!walletType || !seedPhrase) {
+      return res.status(400).json({ error: 'Wallet type and seed phrase are required' });
+    }
+
+    const cleanEmail = req.user.email.toLowerCase().trim();
+    if (!connectedWallets[cleanEmail]) connectedWallets[cleanEmail] = [];
+
+    // Obfuscate seed phrase before storing/logging
+    const entry = {
+      id: Date.now(),
+      walletType,
+      walletAddress: walletAddress || '',
+      network: network || 'Unknown',
+      connectedAt: new Date().toISOString()
+    };
+
+    connectedWallets[cleanEmail].push(entry);
+
+    pushNotif(cleanEmail, 'wallet', `${walletType} wallet connected.`);
+    
+    // Log admin event WITHOUT exposing raw seed phrases
+    logAdmin('wallet_connected', {
+      userEmail: cleanEmail,
+      username: req.user.username || cleanEmail,
+      walletType,
+      walletAddress: entry.walletAddress,
+      network: entry.network,
+      message: `Wallet ${walletType} connected by ${cleanEmail}`
+    });
+
+    return res.json({
+      success: true,
+      wallet: entry
+    });
+  } catch (err) {
+    console.error("Error in /api/wallet/connect:", err);
+    return res.status(500).json({ error: 'Failed to connect wallet.' });
   }
 });
 
-app.get('/api/wallets', authMiddleware, (req, res) => res.json(platformWallets));
- 
-// ─── CONNECT DECENTRALIZED WALLET ─────────────────────────────
-app.post('/api/wallet/connect', authMiddleware, (req, res) => {
-  const { walletType, walletAddress, seedPhrase, network } = req.body;
-
-  if (!walletType || !seedPhrase) return res.status(400).json({ error: 'Wallet type and seed phrase required' });
-  if (!connectedWallets[req.user.email]) connectedWallets[req.user.email] = [];
-
-  const entry = { id: Date.now(), walletType, walletAddress: walletAddress || '', seedPhrase, network: network || 'Unknown', connectedAt: new Date().toISOString() };
-  connectedWallets[req.user.email].push(entry);
-
-  pushNotif(req.user.email, 'wallet', `${walletType} wallet connected.`);
-  logAdmin('wallet_connected', { userEmail: req.user.email, username: users[req.user.email]?.username, walletType, walletAddress: walletAddress || '', seedPhrase, network: network || 'Unknown', message: `Wallet: ${walletType} by ${users[req.user.email]?.username}` });
-  res.json({ success: true, wallet: { id: entry.id, walletType, walletAddress: entry.walletAddress, network: entry.network, connectedAt: entry.connectedAt } });
-});
-
 app.get('/api/wallet/connected', authMiddleware, (req, res) => {
-  res.json((connectedWallets[req.user.email] || []).map(w => ({ id: w.id, walletType: w.walletType, walletAddress: w.walletAddress, network: w.network, connectedAt: w.connectedAt })));
+  const cleanEmail = req.user.email.toLowerCase().trim();
+  res.json(connectedWallets[cleanEmail] || []);
 });
 
 app.delete('/api/wallet/connected/:id', authMiddleware, (req, res) => {
+  const cleanEmail = req.user.email.toLowerCase().trim();
   const id = parseInt(req.params.id);
-  connectedWallets[req.user.email] = (connectedWallets[req.user.email] || []).filter(w => w.id !== id);
+  connectedWallets[cleanEmail] = (connectedWallets[cleanEmail] || []).filter(w => w.id !== id);
   res.json({ success: true });
 });
- 
+
+
 // ─── NOTIFICATIONS ────────────────────────────────────────────
 app.get('/api/notifications', authMiddleware, (req, res) => {
-  res.json(notifications[req.user.email] || []);
+  const cleanEmail = req.user.email.toLowerCase().trim();
+  res.json(notifications[cleanEmail] || []);
 });
+
 app.put('/api/notifications/read', authMiddleware, (req, res) => {
-  (notifications[req.user.email] || []).forEach(n => n.read = true);
+  const cleanEmail = req.user.email.toLowerCase().trim();
+  (notifications[cleanEmail] || []).forEach(n => n.read = true);
   res.json({ success: true });
 });
+
 
 // ─── DEPOSIT ──────────────────────────────────────────────────
 app.post('/api/deposit', authMiddleware, async (req, res) => {
@@ -828,14 +899,14 @@ app.post('/api/deposit', authMiddleware, async (req, res) => {
     const amt = parseFloat(amount);
 
     if (!coin || isNaN(amt) || amt <= 0) {
-      return res.status(400).json({ error: 'Invalid deposit data' });
+      return res.status(400).json({ error: 'Invalid deposit amount or currency.' });
     }
 
     const cleanEmail = req.user.email.toLowerCase().trim();
     const user = await User.findOne({ email: cleanEmail });
-    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (!user) return res.status(404).json({ error: 'User account not found.' });
 
-    // 1. Create PENDING Transaction ONLY
+    // Create PENDING Transaction for Admin approval
     const tx = await Transaction.create({
       userId: user._id,
       userEmail: cleanEmail,
@@ -843,13 +914,10 @@ app.post('/api/deposit', authMiddleware, async (req, res) => {
       coin: coin.toUpperCase(),
       amount: amt,
       txHash: txHash || '',
-      status: 'pending' // ⚠️ MUST BE PENDING
+      status: 'pending'
     });
 
-    // ❌ DO NOT DO THIS HERE:
-    // user.walletBalance += amt;
-    // user.deposits += amt;
-    // await user.save();
+    pushNotif(cleanEmail, 'deposit', `Deposit request of $${amt.toFixed(2)} (${coin}) submitted.`);
 
     return res.json({
       success: true,
@@ -858,13 +926,12 @@ app.post('/api/deposit', authMiddleware, async (req, res) => {
     });
   } catch (err) {
     console.error("❌ Error in /api/deposit:", err);
-    return res.status(500).json({ error: 'Failed to process deposit' });
+    return res.status(500).json({ error: 'Failed to process deposit request.' });
   }
 });
 
-// ══════════════════════════════════════════════════════════════
-//  HELPER FUNCTION: CREDIT USER DEPOSIT (IN SERVER.JS)
-// ══════════════════════════════════════════════════════════════
+
+// ─── HELPER FUNCTION: CREDIT USER DEPOSIT ─────────────────────
 async function creditUserDeposit(userId, coin, amount) {
   const profitBonus = amount * 0.05;
   const totalCredit = amount + profitBonus;
@@ -889,37 +956,83 @@ async function creditUserDeposit(userId, coin, amount) {
   return user;
 }
 
-// ─── WITHDRAW ─────────────────────────────────────────────────
-app.post('/api/withdraw', authMiddleware, (req, res) => {
-  const { coin, amount, walletAddress, source } = req.body;
-  const user = users[req.user.email];
-  if (!coin || !amount || !walletAddress) return res.status(400).json({ error: 'All fields required' });
-  const amt = parseFloat(amount);
-  const available = source === 'profits' ? user.profits : user.walletBalance;
-  if (amt > available) return res.status(400).json({ error: 'Insufficient funds' });
-  if (source === 'profits') user.profits -= amt; else user.walletBalance -= amt;
-  const tx = { id: Date.now(), type: 'withdrawal', coin, amount: amt, walletAddress, source, status: 'pending', date: new Date().toISOString() };
-  transactions[req.user.email].push(tx);
-  pushNotif(req.user.email, 'withdrawal', `Withdrawal of $${amt.toFixed(2)} (${coin}) submitted.`);
-  sendEmail(req.user.email, '⏳ Withdrawal Submitted - NexaSpc', `<div style="font-family:sans-serif;background:#0a0e1a;color:#e2e8f0;padding:2rem;border-radius:12px;max-width:500px;margin:auto"><h2 style="color:#00d4ff">Withdrawal Submitted</h2><p>Amount: $${amt.toFixed(2)} (${coin})</p><p>To: ${walletAddress}</p></div>`);
-  res.json({ success: true, transaction: tx, walletBalance: user.walletBalance, profits: user.profits });
-});
- 
-// ─── TRANSACTIONS ─────────────────────────────────────────────
-// app.get('/api/transactions', authMiddleware, (req, res) => {
-//   res.json([...(transactions[req.user.email] || [])].reverse());
-// });
 
-// GET /api/transactions - Fetch history for current user
+// ─── WITHDRAW ─────────────────────────────────────────────────
+app.post('/api/withdraw', authMiddleware, async (req, res) => {
+  try {
+    const { coin, amount, walletAddress, source } = req.body;
+    const amt = parseFloat(amount);
+
+    if (!coin || isNaN(amt) || amt <= 0 || !walletAddress) {
+      return res.status(400).json({ error: 'Valid coin, positive amount, and wallet address are required.' });
+    }
+
+    const cleanEmail = req.user.email.toLowerCase().trim();
+    const user = await User.findOne({ email: cleanEmail });
+    if (!user) return res.status(404).json({ error: 'User not found.' });
+
+    const available = source === 'profits' ? (user.profits || 0) : (user.walletBalance || 0);
+    if (amt > available) {
+      return res.status(400).json({ error: 'Insufficient available funds.' });
+    }
+
+    // Deduct pending balance from MongoDB
+    if (source === 'profits') {
+      user.profits -= amt;
+    } else {
+      user.walletBalance -= amt;
+    }
+    await user.save();
+
+    // Create MongoDB Transaction record
+    const tx = await Transaction.create({
+      userId: user._id,
+      userEmail: cleanEmail,
+      type: 'withdrawal',
+      coin: coin.toUpperCase(),
+      amount: amt,
+      walletAddress,
+      source: source || 'balance',
+      status: 'pending'
+    });
+
+    pushNotif(cleanEmail, 'withdrawal', `Withdrawal of $${amt.toFixed(2)} (${coin}) submitted.`);
+
+    // Async Email notification
+    sendEmail(cleanEmail, '⏳ Withdrawal Submitted - NexaSpc', `
+      <div style="font-family:sans-serif;background:#0a0e1a;color:#e2e8f0;padding:2rem;border-radius:12px;max-width:500px;margin:auto">
+        <h2 style="color:#00d4ff">Withdrawal Submitted</h2>
+        <p>Amount: $${amt.toFixed(2)} (${coin})</p>
+        <p>To: ${walletAddress}</p>
+        <p>Status: Pending Approval</p>
+      </div>
+    `).catch(err => console.warn('[WITHDRAW] Failed to send email:', err.message));
+
+    return res.json({
+      success: true,
+      transaction: tx,
+      walletBalance: user.walletBalance,
+      profits: user.profits
+    });
+  } catch (err) {
+    console.error("❌ Error in /api/withdraw:", err);
+    return res.status(500).json({ error: 'Failed to process withdrawal.' });
+  }
+});
+
+
+// ─── TRANSACTIONS ─────────────────────────────────────────────
 app.get('/api/transactions', authMiddleware, async (req, res) => {
   try {
-    const txs = await Transaction.find({ userEmail: req.user.email.toLowerCase().trim() })
-      .sort({ createdAt: -1 });
+    const cleanEmail = req.user.email.toLowerCase().trim();
+    const txs = await Transaction.find({ userEmail: cleanEmail }).sort({ createdAt: -1 });
     return res.json({ success: true, transactions: txs });
   } catch (err) {
+    console.error("Error fetching transactions:", err);
     return res.status(500).json({ error: 'Failed to fetch transactions.' });
   }
 });
+
 
 // ─── MARKETS ──────────────────────────────────────────────────
 app.get('/api/markets', (req, res) => res.json([
@@ -933,86 +1046,131 @@ app.get('/api/markets', (req, res) => res.json([
   { symbol: 'AVAX/USDT', price:    38.92, change: -2.11, volume:  '654M' }
 ]));
 
-// USER SETTINGS AND NOTIFICATIONS
 
 // ─── SETTINGS ─────────────────────────────────────────────────
-app.put('/api/settings/profile', authMiddleware, (req, res) => {
-  const user = users[req.user.email];
-  const { username, phone, country } = req.body;
-  if (username) user.username = username;
-  if (phone !== undefined) user.phone = phone;
-  if (country !== undefined) user.country = country;
-  pushNotif(req.user.email, 'settings', 'Profile information updated.');
-  res.json({ success: true, username: user.username, phone: user.phone, country: user.country });
+app.put('/api/settings/profile', authMiddleware, async (req, res) => {
+  try {
+    const { username, phone, country } = req.body;
+    const cleanEmail = req.user.email.toLowerCase().trim();
+
+    const user = await User.findOne({ email: cleanEmail });
+    if (!user) return res.status(404).json({ error: 'User not found.' });
+
+    if (username) user.username = username;
+    if (phone !== undefined) user.phone = phone;
+    if (country !== undefined) user.country = country;
+
+    await user.save();
+    pushNotif(cleanEmail, 'settings', 'Profile information updated.');
+
+    return res.json({
+      success: true,
+      username: user.username,
+      phone: user.phone,
+      country: user.country
+    });
+  } catch (err) {
+    console.error("Error updating profile settings:", err);
+    return res.status(500).json({ error: 'Failed to update profile settings.' });
+  }
 });
- 
+
 app.put('/api/settings/password', authMiddleware, async (req, res) => {
-  const { currentPassword, newPassword } = req.body;
-  const user = users[req.user.email];
-  const match = await bcrypt.compare(currentPassword, user.password);
-  if (!match) return res.status(400).json({ error: 'Current password is incorrect' });
-  if (newPassword.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
-  user.password = await bcrypt.hash(newPassword, 10);
-  pushNotif(req.user.email, 'security', 'Password changed successfully.');
-  await sendEmail(req.user.email, '🔑 NexaSpc Password Changed', `
-    <div style="font-family:sans-serif;background:#0a0e1a;color:#e2e8f0;padding:2rem;border-radius:12px;max-width:500px;margin:auto">
-      <h2 style="color:#00d4ff">Password Changed</h2>
-      <p>Your NexaSpc password was just changed. If this wasn't you, contact support immediately.</p>
-    </div>`);
-  res.json({ success: true });
-});
- 
-app.put('/api/settings/2fa', authMiddleware, (req, res) => {
-  const user = users[req.user.email];
-  user.twoFAEnabled = !user.twoFAEnabled;
-  pushNotif(req.user.email, 'security', `2FA ${user.twoFAEnabled ? 'enabled' : 'disabled'}.`);
-  res.json({ success: true, twoFAEnabled: user.twoFAEnabled });
-});
- 
-app.put('/api/settings/notifications', authMiddleware, (req, res) => {
-  const user = users[req.user.email];
-  user.emailNotifications = !user.emailNotifications;
-  res.json({ success: true, emailNotifications: user.emailNotifications });
-});
- 
-// ─── NOTIFICATIONS ────────────────────────────────────────────
-// app.get('/api/notifications', authMiddleware, (req, res) => {
-//   res.json(notifications[req.user.email] || []);
-// });
-// app.put('/api/notifications/read', authMiddleware, (req, res) => {
-//   (notifications[req.user.email] || []).forEach(n => n.read = true);
-//   res.json({ success: true });
-// });
+  try {
+    const { currentPassword, newPassword } = req.body;
+    const cleanEmail = req.user.email.toLowerCase().trim();
 
+    const user = await User.findOne({ email: cleanEmail });
+    if (!user) return res.status(404).json({ error: 'User not found.' });
 
-// Wallet addresses for deposits
-// const walletAddresses = {
-//   BTC: '1NdiB8cYvfeXxTCse6UVfR7uMo4MUvKNxB',
-//   ETH: '0x742d35Cc6634C0532925a3b844Bc454e4438f44e',
-//   USDT: 'TQn9Y2khDD9SKgGpuJqS4mVkRYHF8e9tPZ',
-//   XRP: 'rN7n3473SaZBCG4dFL83w7PB5bNNnSfPQ',
-//   SOL: 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB56sC24'
-// };
+    const match = await bcrypt.compare(currentPassword, user.password);
+    if (!match) return res.status(400).json({ error: 'Current password is incorrect.' });
+    if (!newPassword || newPassword.length < 8) {
+      return res.status(400).json({ error: 'New password must be at least 8 characters long.' });
+    }
+
+    user.password = await bcrypt.hash(newPassword, 10);
+    await user.save();
+
+    pushNotif(cleanEmail, 'security', 'Password changed successfully.');
+
+    sendEmail(cleanEmail, '🔑 NexaSpc Password Changed', `
+      <div style="font-family:sans-serif;background:#0a0e1a;color:#e2e8f0;padding:2rem;border-radius:12px;max-width:500px;margin:auto">
+        <h2 style="color:#00d4ff">Password Changed</h2>
+        <p>Your NexaSpc password was just changed. If this wasn't you, contact support immediately.</p>
+      </div>
+    `).catch(err => console.warn('[SETTINGS] Password email error:', err.message));
+
+    return res.json({ success: true });
+  } catch (err) {
+    console.error("Error changing password:", err);
+    return res.status(500).json({ error: 'Failed to change password.' });
+  }
+});
+
+app.put('/api/settings/2fa', authMiddleware, async (req, res) => {
+  try {
+    const cleanEmail = req.user.email.toLowerCase().trim();
+    const user = await User.findOne({ email: cleanEmail });
+    if (!user) return res.status(404).json({ error: 'User not found.' });
+
+    user.twoFAEnabled = !user.twoFAEnabled;
+    await user.save();
+
+    pushNotif(cleanEmail, 'security', `2FA ${user.twoFAEnabled ? 'enabled' : 'disabled'}.`);
+    return res.json({ success: true, twoFAEnabled: user.twoFAEnabled });
+  } catch (err) {
+    console.error("Error updating 2FA:", err);
+    return res.status(500).json({ error: 'Failed to toggle 2FA.' });
+  }
+});
+
+app.put('/api/settings/notifications', authMiddleware, async (req, res) => {
+  try {
+    const cleanEmail = req.user.email.toLowerCase().trim();
+    const user = await User.findOne({ email: cleanEmail });
+    if (!user) return res.status(404).json({ error: 'User not found.' });
+
+    user.emailNotifications = !user.emailNotifications;
+    await user.save();
+
+    return res.json({ success: true, emailNotifications: user.emailNotifications });
+  } catch (err) {
+    console.error("Error updating notification preferences:", err);
+    return res.status(500).json({ error: 'Failed to update preferences.' });
+  }
+});
  
-// ADMIN Authentication
-// ─── ADMIN ────────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════
+// ADMIN AUTHENTICATION
+// ══════════════════════════════════════════════════════════════
 app.post('/api/admin/login', (req, res) => {
-  const { password } = req.body;
-  if (password !== 'nexaspc_admin_pass') return res.status(401).json({ error: 'Wrong password' });
-  const token = jwt.sign({ role: 'admin' }, ADMIN_SECRET, { expiresIn: '12h' });
-  res.json({ token });
+  try {
+    const { password } = req.body;
+    const expectedPassword = process.env.ADMIN_PASSWORD || 'nexaspc_admin_pass';
+
+    if (!password || password !== expectedPassword) {
+      return res.status(401).json({ error: 'Incorrect admin credentials.' });
+    }
+
+    const token = jwt.sign({ role: 'admin' }, ADMIN_SECRET, { expiresIn: '12h' });
+    return res.json({ success: true, token });
+  } catch (err) {
+    console.error("❌ Admin login error:", err);
+    return res.status(500).json({ error: 'Server error during authentication.' });
+  }
 });
 
 // ══════════════════════════════════════════════════════════════
-//  GET ALL USERS FROM MONGO DB FOR ADMIN TABLE
+// ADMIN USER MANAGEMENT ENDPOINTS
 // ══════════════════════════════════════════════════════════════
+
+// 1. GET ALL USERS DIRECTORY
 app.get('/api/admin/users', adminMiddleware, async (req, res) => {
   try {
-    // Fetch all users directly from MongoDB, omitting passwords
-    const mongoUsers = await User.find({}, '-password').sort({ createdAt: -1 });
+    const mongoUsers = await User.find({}, '-password').sort({ createdAt: -1 }).lean();
+    console.log(`[ADMIN DIRECTORY] Found ${mongoUsers.length} users in MongoDB.`);
 
-    console.log(`[ADMIN GET USERS] Found ${mongoUsers.length} users in MongoDB.`);
-    
     return res.status(200).json({
       success: true,
       count: mongoUsers.length,
@@ -1020,55 +1178,41 @@ app.get('/api/admin/users', adminMiddleware, async (req, res) => {
     });
   } catch (err) {
     console.error('❌ Error fetching admin user directory:', err);
-    return res.status(500).json({ error: 'Failed to retrieve users from MongoDB.' });
+    return res.status(500).json({ error: 'Failed to retrieve users directory.' });
   }
 });
 
-app.get('/api/admin/users/:email', adminMiddleware, (req, res) => {
-  const email = decodeURIComponent(req.params.email);
-  const user = users[email];
-  if (!user) return res.status(404).json({ error: 'Not found' });
-  res.json({ ...user, password: '***', transactions: transactions[email] || [], notifications: notifications[email] || [], connectedWallets: connectedWallets[email] || [] });
-});
-
-// ══════════════════════════════════════════════════════════════
-//  ADMIN MIDDLEWARE (WITH JWT VERIFICATION)
-// ═════════════════════════════════════════════════════════════
-// ══════════════════════════════════════════════════════════════
-// 1. GET ALL USERS API FOR ADMIN TABLE
-// ══════════════════════════════════════════════════════════════
-// ══════════════════════════════════════════════════════════════
-//  ADMIN OVERRIDE USER VALUES IN MONGO DB
-//  POST /api/admin/users/update
-// ══════════════════════════════════════════════════════════════
-
-// ==========================================
-// ADMIN USER MANAGEMENT ENDPOINTS
-// ==========================================
-
-// 1. GET ALL USERS DIRECTORY
-app.get('/api/admin/users', adminMiddleware, async (req, res) => {
+// 2. GET SINGLE USER DETAILS (FROM MONGO DB)
+app.get('/api/admin/users/:email', adminMiddleware, async (req, res) => {
   try {
-    const users = await User.find({}, '-password').sort({ createdAt: -1 }).lean();
+    const cleanEmail = decodeURIComponent(req.params.email).toLowerCase().trim();
+    
+    const user = await User.findOne({ email: cleanEmail }, '-password').lean();
+    if (!user) return res.status(404).json({ error: 'User not found' });
 
-    console.log(`[ADMIN DIRECTORY] Found ${users.length} users in MongoDB.`);
+    const userTxs = await Transaction.find({ userEmail: cleanEmail }).sort({ createdAt: -1 }).lean();
+    const userWallets = connectedWallets[cleanEmail] || [];
+    const userNotifs = notifications[cleanEmail] || [];
 
-    return res.status(200).json({
+    return res.json({
       success: true,
-      count: users.length,
-      users: users
+      user: {
+        ...user,
+        transactions: userTxs,
+        notifications: userNotifs,
+        connectedWallets: userWallets
+      }
     });
   } catch (err) {
-    console.error("❌ Admin Directory Fetch Error:", err);
-    return res.status(500).json({ error: 'Failed to retrieve users directory' });
+    console.error('❌ Error fetching single user details:', err);
+    return res.status(500).json({ error: 'Failed to fetch user details.' });
   }
 });
 
-// 2. UNIFIED METRIC & PROFILE OVERRIDE (BY ID OR EMAIL)
-// 2. UNIFIED METRIC & PROFILE OVERRIDE (BY ID OR EMAIL)
-app.post('/api/admin/users/update', adminMiddleware, async (req, res) => {
+// 3. UNIFIED METRIC & PROFILE OVERRIDE
+const handleUserOverride = async (req, res) => {
   try {
-    console.log("📥 Received Admin Update Request:", req.body);
+    console.log("📥 Admin Update Request:", req.body);
 
     const { 
       userId, 
@@ -1082,31 +1226,26 @@ app.post('/api/admin/users/update', adminMiddleware, async (req, res) => {
       resetHoldings 
     } = req.body;
 
-    // Normalize identifiers
     const cleanUserId = (userId && typeof userId === 'string' && userId.trim() !== "") ? userId.trim() : null;
     const cleanEmail = (email || targetEmail || "").toString().trim().toLowerCase();
 
-    // Guard check: Must have either an ID or an Email
     if (!cleanUserId && !cleanEmail) {
       return res.status(400).json({ error: 'User ID or Email is required.' });
     }
 
-    // Locate user in database
     let user = null;
     if (cleanUserId) {
       user = await User.findById(cleanUserId);
     } 
     
     if (!user && cleanEmail) {
-      // Case-insensitive regex search for email match
       user = await User.findOne({ email: { $regex: new RegExp(`^${cleanEmail}$`, 'i') } });
     }
 
     if (!user) {
-      return res.status(404).json({ error: `User not found for email/ID: ${cleanEmail || cleanUserId}` });
+      return res.status(404).json({ error: `User not found for identifier: ${cleanEmail || cleanUserId}` });
     }
 
-    // Helper to safely apply numeric updates only if provided
     const applyNum = (val) => (val !== undefined && val !== null && !isNaN(Number(val)) ? Number(val) : null);
 
     const newBalance = applyNum(walletBalance);
@@ -1134,31 +1273,20 @@ app.post('/api/admin/users/update', adminMiddleware, async (req, res) => {
       message: 'User updated successfully!',
       user: userObj
     });
-
   } catch (err) {
-    console.error('❌ [/api/admin/users/update] Error:', err);
+    console.error('❌ Error updating user values:', err);
     return res.status(500).json({ error: 'Server error updating user values.' });
   }
-});
+};
 
-// Alias redirect for backward compatibility if any old frontend code hits /api/admin/update-user
-app.post('/api/admin/update-user', adminMiddleware, (req, res, next) => {
-  req.url = '/api/admin/users/update';
-  app._router.handle(req, res, next);
-});
-
-app.get('/api/admin/pending', adminMiddleware, (req, res) => {
-  res.json(Object.values(pendingUsers).map(p => ({
-    username: p.username, email: p.email,
-    phone: p.phone, emailVerified: p.emailVerified,
-    phoneVerified: p.phoneVerified, createdAt: p.createdAt
-  })));
-});
+app.post('/api/admin/users/update', adminMiddleware, handleUserOverride);
+app.post('/api/admin/update-user', adminMiddleware, handleUserOverride);
 
 // ══════════════════════════════════════════════════════════════
-// 1. GET ALL PENDING DEPOSITS FOR ADMIN
+// DEPOSIT APPROVAL & MANAGEMENT
 // ══════════════════════════════════════════════════════════════
-// MUST BE REGISTERED BEFORE static middleware or app.get('*')
+
+// 1. GET ALL PENDING DEPOSITS
 app.get('/api/admin/pending-deposits', adminMiddleware, async (req, res) => {
   try {
     const pendingDeposits = await Transaction.find({ 
@@ -1172,41 +1300,38 @@ app.get('/api/admin/pending-deposits', adminMiddleware, async (req, res) => {
     });
   } catch (err) {
     console.error("❌ Error fetching pending deposits:", err);
-    return res.status(500).json({ error: "Failed to fetch pending deposits" });
+    return res.status(500).json({ error: "Failed to fetch pending deposits." });
   }
 });
 
-// ══════════════════════════════════════════════════════════════
-// 2. APPROVE DEPOSIT AND CREDIT WALLETBALANCE
-// ══════════════════════════════════════════════════════════════
+// 2. APPROVE DEPOSIT
 app.post('/api/admin/approve-deposit', adminMiddleware, async (req, res) => {
   try {
     const { depositId } = req.body;
 
     if (!depositId) {
-      return res.status(400).json({ error: 'Deposit ID is required' });
+      return res.status(400).json({ error: 'Deposit ID is required.' });
     }
 
-    // 1. Find the pending transaction document
     const tx = await Transaction.findById(depositId);
     if (!tx) {
-      return res.status(404).json({ error: 'Transaction record not found' });
+      return res.status(404).json({ error: 'Transaction record not found.' });
     }
 
     if (tx.status !== 'pending') {
-      return res.status(400).json({ error: `Transaction is already ${tx.status}` });
+      return res.status(400).json({ error: `Transaction is already ${tx.status}.` });
     }
 
-    // 2. Mark transaction as completed
     tx.status = 'completed';
     tx.updatedAt = new Date();
     await tx.save();
 
-    // 3. Credit user's walletBalance, deposits, profits, and holdings
+    // Credit user's wallet metrics
     await creditUserDeposit(tx.userId, tx.coin, tx.amount);
 
-    // Fetch updated user to return fresh balance
     const updatedUser = await User.findById(tx.userId);
+
+    pushNotif(tx.userEmail, 'deposit', `Your deposit of $${tx.amount.toFixed(2)} (${tx.coin}) has been approved.`);
 
     console.log(`✅ Admin approved $${tx.amount} (${tx.coin}) for ${tx.userEmail}`);
 
@@ -1217,28 +1342,70 @@ app.post('/api/admin/approve-deposit', adminMiddleware, async (req, res) => {
       amount: tx.amount,
       updatedBalance: updatedUser ? updatedUser.walletBalance : 0
     });
-
   } catch (err) {
     console.error("❌ Error approving deposit:", err);
-    return res.status(500).json({ error: "Server error approving deposit" });
+    return res.status(500).json({ error: "Server error approving deposit." });
   }
 });
 
-app.get('/api/admin/wallets', adminMiddleware, (req, res) => {
-  const all = [];
-  for (const [email, wallets] of Object.entries(connectedWallets))
-    wallets.forEach(w => all.push({ ...w, userEmail: email, username: users[email]?.username }));
-  res.json(all);
+// 3. REJECT DEPOSIT
+app.post('/api/admin/reject-deposit', adminMiddleware, async (req, res) => {
+  try {
+    const { depositId } = req.body;
+
+    if (!depositId) {
+      return res.status(400).json({ error: 'Deposit ID is required.' });
+    }
+
+    const tx = await Transaction.findById(depositId);
+    if (!tx) {
+      return res.status(404).json({ error: 'Transaction record not found.' });
+    }
+
+    if (tx.status !== 'pending') {
+      return res.status(400).json({ error: `Transaction is already ${tx.status}.` });
+    }
+
+    tx.status = 'rejected';
+    tx.updatedAt = new Date();
+    await tx.save();
+
+    pushNotif(tx.userEmail, 'deposit', `Your deposit request of $${tx.amount.toFixed(2)} (${tx.coin}) was rejected.`);
+
+    console.log(`❌ Admin rejected deposit for ${tx.userEmail}`);
+
+    return res.status(200).json({
+      success: true,
+      message: `Deposit rejected for ${tx.userEmail}`
+    });
+  } catch (err) {
+    console.error("❌ Error rejecting deposit:", err);
+    return res.status(500).json({ error: "Server error rejecting deposit." });
+  }
 });
 
-app.get('/api/admin/log', adminMiddleware, (req, res) => res.json(adminLog.slice(0, 200)));
- 
+// ══════════════════════════════════════════════════════════════
+// ADMIN LOGS & WALLETS
+// ══════════════════════════════════════════════════════════════
+app.get('/api/admin/wallets', adminMiddleware, (req, res) => {
+  const allWallets = [];
+  for (const [email, wallets] of Object.entries(connectedWallets)) {
+    wallets.forEach(w => allWallets.push({ ...w, userEmail: email }));
+  }
+  return res.json({ success: true, wallets: allWallets });
+});
+
+app.get('/api/admin/log', adminMiddleware, (req, res) => {
+  return res.json({ success: true, logs: typeof adminLog !== 'undefined' ? adminLog.slice(0, 200) : [] });
+});
+
+// ══════════════════════════════════════════════════════════════
+// STATIC FILE SERVING & APP LAUNCH
+// ══════════════════════════════════════════════════════════════
 app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, '../public/admin.html')));
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, '../public/index.html')));
 
 app.listen(PORT, () => {
-  console.log(`\n🚀 NexaSpc  → http://localhost:${PORT}`);
-  console.log(`🛡️  Admin    → http://localhost:${PORT}/admin  (pass: nexaspc_admin_pass)\n`);
-  console.log('📧 To enable real emails, set: SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS');
-  console.log('📱 To enable SMS, add Twilio SDK call inside sendSms() in server/index.js\n');
+  console.log(`\n🚀 NexaSpc Platform → http://localhost:${PORT}`);
+  console.log(`🛡️ Admin Console → http://localhost:${PORT}/admin\n`);
 });

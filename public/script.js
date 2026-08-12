@@ -2,6 +2,7 @@
 const API = '/api';
 
 let state = {
+  currentPage: 'home', // <--- ADD THIS LINE
   user: null,
   token: null,
   markets: [],
@@ -24,6 +25,12 @@ let state = {
 };
 
 
+function fmt(n) { 
+  return Number(n).toLocaleString('en-US', { 
+    minimumFractionDigits: 2, 
+    maximumFractionDigits: 2 
+  }); 
+}
 
 
 // ── STORAGE ──
@@ -41,8 +48,15 @@ function saveAuth(token, user) {
 // ══════════════════════════════════════════════════════════════
 // 1. SESSION LOAD & MONGO SYNC
 // ══════════════════════════════════════════════════════════════
+function getAuthToken() {
+  return localStorage.getItem('nsx_token') || 
+         localStorage.getItem('token') || 
+         localStorage.getItem('userToken') || 
+         localStorage.getItem('adminToken');
+}
+
 function loadAuth() {
-  const savedToken = localStorage.getItem('nsx_token') || localStorage.getItem('token');
+  const savedToken = getAuthToken();
   const savedUser  = localStorage.getItem('nsx_user') || localStorage.getItem('user');
 
   if (savedToken && savedUser) {
@@ -51,218 +65,106 @@ function loadAuth() {
       state.user  = JSON.parse(savedUser);
     } catch (err) {
       console.error('[loadAuth] Failed to parse user session:', err);
+      // Clean up corrupt session
       state.token = null;
       state.user  = null;
+      localStorage.removeItem('nsx_token');
+      localStorage.removeItem('nsx_user');
     }
+  } else {
+    // Ensure state is null if missing either token or user
+    state.token = null;
+    state.user  = null;
   }
-}
-
-// ══════════════════════════════════════════════════════════════
-// 2. FETCH FRESH DATA FROM MONGO ATLAS & UPDATE UI
-// ══════════════════════════════════════════════════════════════
-async function refreshUserProfile() {
-  if (!state.token) return;
-
-  try {
-    const res = await fetch('/api/profile', {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${state.token}`,
-        'Content-Type': 'application/json'
-      }
-    });
-
-    const data = await res.json();
-
-    if (res.ok) {
-      // 💡 Update live state with fresh values from MongoDB
-      state.user.walletBalance = data.walletBalance;
-      state.user.bonuses = data.bonuses;
-      state.user.profits = data.profits;
-
-      // Persist updated user state back to localStorage
-      localStorage.setItem('nsx_user', JSON.stringify(state.user));
-
-      // Re-render user dashboard elements on screen
-      updateDashboardUI();
-    } else {
-      console.warn('[refreshUserProfile] Failed to sync profile:', data.error);
-    }
-  } catch (err) {
-    console.error('[refreshUserProfile] Network error:', err);
-  }
-}
-
-// ══════════════════════════════════════════════════════════════
-// 3. UI RENDERER
-// ══════════════════════════════════════════════════════════════
-function updateDashboardUI() {
-  if (!state.user) return;
-
-  const balElem = document.getElementById('walletBalance') || document.getElementById('userBalance');
-  const bonusElem = document.getElementById('userBonuses');
-  const profitElem = document.getElementById('userProfits');
-
-  if (balElem) balElem.innerText = `$${Number(state.user.walletBalance || 0).toLocaleString()}`;
-  if (bonusElem) bonusElem.innerText = `$${Number(state.user.bonuses || 0).toLocaleString()}`;
-  if (profitElem) profitElem.innerText = `$${Number(state.user.profits || 0).toLocaleString()}`;
-}
-
-// ══════════════════════════════════════════════════════════════
-// 4. ON PAGE LOAD INITIATOR
-// ══════════════════════════════════════════════════════════════
-document.addEventListener("DOMContentLoaded", async () => {
-  loadAuth();             // 1. Load cached session instantly (prevents blank screen)
-  updateDashboardUI();    // 2. Render cached balance immediately
-  await refreshUserProfile(); // 3. Fetch latest live balance from MongoDB & update DOM
-});
-
-function adminLogout() {
-  localStorage.removeItem('adminToken');
-  const dash = document.getElementById("admin-dashboard");
-  if (dash) dash.style.display = "none";
-}
-
-function logout() {
-  localStorage.removeItem('nsx_token');
-  localStorage.removeItem('nsx_user');
-  localStorage.removeItem('adminToken'); // Clean up admin token as well
-  state.token = null;
-  state.user = null;
-  state.notifications = [];
-  
-  renderNav();
-  if (typeof toast === 'function') toast('Logged out successfully.');
-  if (typeof navigate === 'function') navigate('login');
-}
-
-// ══════════════════════════════════════════════════════════════
-// 1. STANDARD USER DASHBOARD LOAD FUNCTION
-// ══════════════════════════════════════════════════════════════
-document.addEventListener("DOMContentLoaded", () => {
-  // Check if we are on the user dashboard page
-  const dashboardElement = document.getElementById("user-dashboard") || document.getElementById("dashboard");
-  if (dashboardElement) {
-    loadUserProfile();
-  }
-});
-
-async function loadUserProfile() {
-  // Grab standard user token (or adminToken as a fallback during local testing)
-  const token = localStorage.getItem("token") || 
-                localStorage.getItem("userToken") || 
-                localStorage.getItem("adminToken");
-
-  if (!token) {
-    console.warn("No authentication token found. Redirecting to login...");
-    window.location.href = "/login.html";
-    return;
-  }
-
-  try {
-    const res = await fetch('/api/profile', {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      }
-    });
-
-    const data = await res.json();
-
-    if (res.ok) {
-      console.log("✅ LIVE MONGO USER PROFILE:", data);
-
-      // Render walletBalance directly to the DOM
-      const balanceElem = document.getElementById("walletBalance") || document.getElementById("userBalance");
-      const bonusesElem = document.getElementById("userBonuses");
-      const profitsElem = document.getElementById("userProfits");
-
-      if (balanceElem) balanceElem.innerText = `$${Number(data.walletBalance || 0).toLocaleString()}`;
-      if (bonusesElem) bonusesElem.innerText = `$${Number(data.bonuses || 0).toLocaleString()}`;
-      if (profitsElem) profitsElem.innerText = `$${Number(data.profits || 0).toLocaleString()}`;
-
-    } else {
-      console.error("Profile load failed:", data.error);
-    }
-  } catch (err) {
-    console.error("Network error loading profile:", err);
-  }
-}
-
-async function api(endpoint, options = {}) {
-  const headers = { 
-    'Content-Type': 'application/json',
-    ...(state.token ? { 'Authorization': `Bearer ${state.token}` } : {}),
-    ...(options.headers || {}) // Properly merges custom headers
-  };
-
-  const res = await fetch(API + endpoint, { 
-    ...options, 
-    headers 
-  });
-
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Request failed');
-  return data;
 }
 
 // ── NAVIGATION ──
-function navigate(page) {
-  // 1. ROUTE GUARD: If logged-in user hits 'home', redirect to 'dashboard'
-  if (page === 'home' && state.user) {
+// ── NAVIGATION ENGINE ──
+function navigate(pageId) {
+  // Delegate routing execution to unified page load engine
+  onPageLoad(pageId);
+}
+
+function handleNavClick(targetPage) {
+  const token = getAuthToken();
+
+  if (targetPage === 'home' && token) {
+    targetPage = 'dashboard';
+  }
+
+  navigate(targetPage);
+}
+
+// Single Source of Truth for Page Routing
+function onPageLoad(page) {
+  const token = localStorage.getItem("token") || 
+                localStorage.getItem("userToken") || 
+                localStorage.getItem("adminToken") || 
+                localStorage.getItem("nsx_user");
+
+  if (page === 'home' && token) {
     page = 'dashboard';
   }
 
-  // 2. PROTECTED ROUTES: If guest tries to access private pages, send to 'login'
-  const protectedPages = [
-    'dashboard', 'deposit', 'withdraw', 'transactions', 
-    'settings', 'connect-wallet', 'notifications', 'spot'
-  ];
-  if (!state.user && protectedPages.includes(page)) {
-    page = 'login';
+  // 1. Hide all page sections
+  document.querySelectorAll('.page').forEach(p => p.style.display = 'none');
+
+  // 2. Show the target page section
+  const targetPage = document.getElementById(`page-${page}`) || document.getElementById(page);
+  if (targetPage) {
+    targetPage.style.display = 'block';
   }
 
-  // 3. UI Update: Toggle active class on pages using your exact 'page-' ID pattern
-  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-  const el = document.getElementById('page-' + page);
-  if (el) el.classList.add('active');
+  // 3. Close navigation dropdown if open
+  document.getElementById('user-dropdown')?.classList.remove('open');
 
-  // 4. Update Navigation Links
-  document.querySelectorAll('.nav-links a').forEach(a => {
-    a.classList.toggle('active', a.dataset.page === page);
-  });
-
-  window.scrollTo(0, 0);
-
-  // 5. Trigger specific page load actions
-  onPageLoad(page);
+  // 4. View Loader Trigger Switch (Guaranteed execution without refresh)
+  switch (page) {
+    case 'dashboard':
+      try { loadDashboard(); } catch (e) { console.error("Error in loadDashboard:", e); }
+      try { loadUserProfile(); } catch (e) { console.error("Error in loadUserProfile:", e); }
+      break;
+    case 'deposit':
+      try { if (typeof loadDeposit === 'function') loadDeposit(); } catch (e) {}
+      try { loadUserProfile(); } catch (e) {}
+      break;
+    case 'connect-wallet':
+      try { if (typeof loadConnectWallet === 'function') loadConnectWallet(); } catch (e) {}
+      break;
+    case 'transactions':
+      try { if (typeof loadTransactions === 'function') loadTransactions(); } catch (e) { console.error(e); }
+      break;
+    case 'notifications':
+      try { if (typeof loadNotifications === 'function') loadNotifications(); else if (typeof fetchNotifications === 'function') fetchNotifications(); } catch (e) {}
+      break;
+    case 'markets':
+      try { if (typeof loadMarkets === 'function') loadMarkets(); } catch (e) {}
+      break;
+    case 'withdraw':
+      try { if (typeof loadWithdraw === 'function') loadWithdraw(); } catch (e) {}
+      break;
+    case 'spot':
+      try { if (typeof loadSpot === 'function') loadSpot(); } catch (e) {}
+      break;
+    case 'settings':
+      try { if (typeof loadSettings === 'function') loadSettings(); } catch (e) {}
+      break;
+  }
 }
 
-function onPageLoad(page) {
-  if (page === 'markets')      loadMarkets();
-  if (page === 'dashboard')    loadDashboard();
-  if (page === 'deposit')      loadDeposit();
-  if (page === 'withdraw')     loadWithdraw();
-  if (page === 'transactions') loadTransactions();
-  if (page === 'spot')         loadSpot();
-  if (page === 'home')         loadHomeTicker();
-  if (page === 'settings')     loadSettings();
-  if (page === 'connect-wallet') loadConnectWallet();
-  if (page === 'notifications') loadNotifications();
-}
+// Attach router to global window context
+window.navigate = navigate;
+window.onPageLoad = onPageLoad;
 
-// ── NAV ──
+// ── NAVIGATION HEADER & DROPDOWN ──
 function renderNav() {
   const authSection = document.getElementById('nav-auth');
   if (!authSection) return;
 
   if (state.user) {
-    // Ensure notifications exists as an array to prevent crashes
     const notifs = Array.isArray(state.notifications) ? state.notifications : [];
     const unread = notifs.filter(n => !n.read).length;
 
-    // Safely extract display name and avatar initial
     const displayName = state.user.username || state.user.email || 'User';
     const initial = displayName.charAt(0).toUpperCase();
 
@@ -289,12 +191,10 @@ function renderNav() {
         </div>
       </div>`;
 
-    // Fetch notifications if helper function exists
     if (typeof fetchNotifications === 'function') {
       fetchNotifications().catch(() => {});
     }
   } else {
-    // Logged Out State
     authSection.innerHTML = `
       <button class="btn btn-ghost btn-sm" onclick="navigate('login')">Log In</button>
       <button class="btn btn-primary btn-sm" onclick="navigate('signup')">Sign Up</button>`;
@@ -323,7 +223,7 @@ function toast(msg, type = 'success') {
 
 // ── AUTH  LOGIN──
 async function handleLogin(e) {
-  e.preventDefault();
+  if (e) e.preventDefault();
 
   const emailInput = document.getElementById('login-email');
   const passwordInput = document.getElementById('login-password');
@@ -339,34 +239,53 @@ async function handleLogin(e) {
   const password = passwordInput.value;
 
   if (!email || !password) {
-    errEl.textContent = 'Please enter both email and password.';
-    errEl.style.display = 'block';
+    if (errEl) {
+      errEl.textContent = 'Please enter both email and password.';
+      errEl.style.display = 'block';
+    }
     return;
   }
 
-  errEl.style.display = 'none';
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span> Signing in…';
+  if (errEl) errEl.style.display = 'none';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Signing in…';
+  }
 
   try {
-    // Make sure your backend route accepts { email, password }
-    // If backend expects 'username', change email key to 'username'
     const data = await api('/login', {
       method: 'POST',
       body: JSON.stringify({ email, password })
     });
 
-    saveAuth(data.token, data.user);
-    renderNav();
-    toast(`Welcome back, ${data.user?.username || data.user?.email || 'User'}! 👋`);
-    navigate('dashboard');
+    // Unified Auth Storage
+    state.token = data.token;
+    state.user = data.user;
+    
+    localStorage.setItem('token', data.token);
+    localStorage.setItem('nsx_user', JSON.stringify(data.user));
+
+    if (typeof renderNav === 'function') renderNav();
+    if (typeof toast === 'function') toast(`Welcome back, ${data.user?.username || 'User'}! 👋`);
+    
+    // Single page navigate or page switch
+    if (typeof navigate === 'function') {
+      navigate('dashboard');
+    } else {
+      window.location.href = '/dashboard';
+    }
+
   } catch (err) {
     console.error("Login error response:", err);
-    errEl.textContent = err.message || 'Login failed.';
-    errEl.style.display = 'block';
+    if (errEl) {
+      errEl.textContent = err.message || 'Login failed.';
+      errEl.style.display = 'block';
+    }
   } finally {
-    btn.disabled = false;
-    btn.innerHTML = 'Log In';
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = 'Log In';
+    }
   }
 }
 
@@ -393,96 +312,123 @@ function navigate(viewName) {
 window.navigate = navigate;
 
 // 1. Submit email to request reset code
+// Send Reset Code
 async function handleSendResetCode(e) {
   e.preventDefault();
 
-  if (state.forgotPassword.isSubmitting) return;
+  if (state.forgotPassword?.isSubmitting) return;
 
   const emailInput = document.getElementById('forgot-email');
   const errorDiv = document.getElementById('forgot-error');
   const btn = document.getElementById('forgot-btn');
-  errorDiv.style.display = 'none';
+  
+  if (errorDiv) errorDiv.style.display = 'none';
 
-  // Update state with user input
-  state.forgotPassword.email = emailInput.value.trim();
+  const email = emailInput?.value.trim();
 
-  if (!state.forgotPassword.email) {
-    errorDiv.textContent = 'Please enter a valid email address.';
-    errorDiv.style.display = 'block';
+  if (!email) {
+    if (errorDiv) {
+      errorDiv.textContent = 'Please enter a valid email address.';
+      errorDiv.style.display = 'block';
+    }
     return;
   }
+
   try {
-    state.forgotPassword.isSubmitting = true;
-    btn.disabled = true;
-    btn.textContent = 'Sending...';
+    if (state.forgotPassword) state.forgotPassword.isSubmitting = true;
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Sending...';
+    }
 
     const res = await fetch('/api/auth/forgot-password', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: state.forgotPassword.email })
+      body: JSON.stringify({ email })
     });
 
     const data = await res.json();
 
     if (res.ok) {
-      state.forgotPassword.codeSent = true;
-
-      // Populate email in Step 2 input
-      const confirmEmailInput = document.getElementById('reset-confirm-email');
-      if (confirmEmailInput) {
-        confirmEmailInput.value = state.forgotPassword.email;
+      if (state.forgotPassword) {
+        state.forgotPassword.email = email;
+        state.forgotPassword.codeSent = true;
       }
 
-      // Transition to reset password view
+      // Persist in sessionStorage in case user reloads page
+      sessionStorage.setItem('reset_email', email);
+
+      const confirmEmailInput = document.getElementById('reset-confirm-email');
+      if (confirmEmailInput) {
+        confirmEmailInput.value = email;
+      }
+
       navigate('reset-password');
     } else {
-      errorDiv.textContent = data.error || 'Failed to send reset code.';
-      errorDiv.style.display = 'block';
+      if (errorDiv) {
+        errorDiv.textContent = data.error || 'Failed to send reset code.';
+        errorDiv.style.display = 'block';
+      }
     }
   } catch (err) {
     console.error('Error requesting password reset code:', err);
-    errorDiv.textContent = 'Network error. Please try again.';
-    errorDiv.style.display = 'block';
+    if (errorDiv) {
+      errorDiv.textContent = 'Network error. Please try again.';
+      errorDiv.style.display = 'block';
+    }
   } finally {
-    state.forgotPassword.isSubmitting = false;
-    btn.disabled = false;
-    btn.textContent = 'Send Code';
+    if (state.forgotPassword) state.forgotPassword.isSubmitting = false;
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'Send Code';
+    }
   }
 }
 
-// 2. Submit 6-digit verification code & new password
-// 2. Submit 6-digit verification code & new password
+// Confirm Reset Password
 async function handleConfirmResetPassword(e) {
   e.preventDefault();
 
-  if (state.forgotPassword.isSubmitting) return;
+  if (state.forgotPassword?.isSubmitting) return;
 
-  const code = document.getElementById('reset-code').value.trim();
-  const newPassword = document.getElementById('reset-new-password').value;
+  const codeInput = document.getElementById('reset-code');
+  const newPasswordInput = document.getElementById('reset-new-password');
+  const confirmEmailInput = document.getElementById('reset-confirm-email');
   const errorDiv = document.getElementById('reset-error');
   const btn = document.getElementById('reset-btn');
 
-  errorDiv.style.display = 'none';
+  if (errorDiv) errorDiv.style.display = 'none';
 
-  // Read email directly from the central state object (fallback to hidden DOM input)
-  const email = state.forgotPassword.email || document.getElementById('reset-confirm-email').value.trim();
+  const code = codeInput?.value.trim();
+  const newPassword = newPasswordInput?.value;
+  
+  // Fallback cascade: state -> input field -> sessionStorage
+  const email = state.forgotPassword?.email || 
+                confirmEmailInput?.value.trim() || 
+                sessionStorage.getItem('reset_email');
 
   if (!email || !code || !newPassword) {
-    errorDiv.textContent = 'Please complete all fields.';
-    errorDiv.style.display = 'block';
+    if (errorDiv) {
+      errorDiv.textContent = 'Please complete all fields.';
+      errorDiv.style.display = 'block';
+    }
     return;
   }
 
   if (code.length !== 6) {
-    errorDiv.textContent = 'Verification code must be exactly 6 digits.';
-    errorDiv.style.display = 'block';
+    if (errorDiv) {
+      errorDiv.textContent = 'Verification code must be exactly 6 digits.';
+      errorDiv.style.display = 'block';
+    }
     return;
   }
 
   try {
-    state.forgotPassword.isSubmitting = true;
-    btn.disabled = true;
-    btn.textContent = 'Resetting...';
+    if (state.forgotPassword) state.forgotPassword.isSubmitting = true;
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Resetting...';
+    }
 
     const res = await fetch('/api/auth/reset-password', {
       method: 'POST',
@@ -495,227 +441,53 @@ async function handleConfirmResetPassword(e) {
     if (res.ok) {
       alert('Password reset successfully! Please log in with your new password.');
 
-      // Clear state and forms
-      state.forgotPassword.email = '';
-      state.forgotPassword.codeSent = false;
+      // Clear memory and local storage
+      if (state.forgotPassword) {
+        state.forgotPassword.email = '';
+        state.forgotPassword.codeSent = false;
+      }
+      sessionStorage.removeItem('reset_email');
 
-      document.getElementById('forgot-password-form').reset();
-      document.getElementById('reset-password-form').reset();
+      const forgotForm = document.getElementById('forgot-password-form');
+      const resetForm = document.getElementById('reset-password-form');
+      if (forgotForm) forgotForm.reset();
+      if (resetForm) resetForm.reset();
 
       navigate('login');
     } else {
-      errorDiv.textContent = data.error || 'Failed to reset password.';
-      errorDiv.style.display = 'block';
+      if (errorDiv) {
+        errorDiv.textContent = data.error || 'Failed to reset password.';
+        errorDiv.style.display = 'block';
+      }
     }
   } catch (err) {
     console.error('Error confirming reset password:', err);
-    errorDiv.textContent = 'Network error. Please try again.';
-    errorDiv.style.display = 'block';
+    if (errorDiv) {
+      errorDiv.textContent = 'Network error. Please try again.';
+      errorDiv.style.display = 'block';
+    }
   } finally {
-    state.forgotPassword.isSubmitting = false;
-    btn.disabled = false;
-    btn.textContent = 'Reset Password';
+    if (state.forgotPassword) state.forgotPassword.isSubmitting = false;
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'Reset Password';
+    }
   }
-}
+};
 
 // ─── AUTH CHECK & DASHBOARD SETUP ─────────────────────────────────────────────
-document.addEventListener("DOMContentLoaded", () => {
-  const token = localStorage.getItem("adminToken");
-  if (token) {
-    showAdminDashboard();
-  }
-});
-
 function showAdminDashboard() {
   const dash = document.getElementById("admin-dashboard");
   if (dash) {
     dash.style.display = "grid";
-    fetchUserDirectory();
+    if (typeof fetchPendingDeposits === 'function') fetchPendingDeposits();
+    if (typeof fetchUserDirectory === 'function') fetchUserDirectory();
   }
 }
-
-// ══════════════════════════════════════════════════════════════
-// 1. STANDARD USER LOGIN
-// ══════════════════════════════════════════════════════════════
-async function loginUser(email, password) {
-  try {
-    const res = await fetch('/api/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password })
-    });
-
-    const data = await res.json();
-
-    if (res.ok && data.token) {
-      // Store user token for /api/profile and dashboard requests
-      localStorage.setItem('token', data.token);
-      localStorage.setItem('userToken', data.token);
-      window.location.href = '/dashboard';
-    } else {
-      alert(data.error || 'User login failed');
-    }
-  } catch (err) {
-    console.error('Login error:', err);
-  }
-}
-
-// ─── FEATURE 1: OVERRIDE USER BALANCE & HOLDINGS ─────────────────────────────
-async function overrideUserAccount() {
-  const token = localStorage.getItem("adminToken");
-  if (!token) return alert("Admin session expired. Please log in again.");
-
-  const targetEmailInput   = document.getElementById("targetEmail");
-  const newBalanceInput    = document.getElementById("newBalance");
-  const newBonusesInput    = document.getElementById("newBonuses");
-  const newDepositsInput   = document.getElementById("newDeposits");
-  const newProfitsInput    = document.getElementById("newProfits");
-  const resetHoldingsInput = document.getElementById("resetHoldings");
-
-  if (!targetEmailInput || !targetEmailInput.value.trim()) {
-    return alert("Please enter a target user email.");
-  }
-
-  const targetEmail = targetEmailInput.value.trim();
-
-  // Helper to convert inputs safely
-  const parseVal = (input) => (input && input.value.trim() !== "" ? Number(input.value) : null);
-
-  const payload = {
-    targetEmail: targetEmail,
-    email: targetEmail,
-    walletBalance: parseVal(newBalanceInput),
-    bonuses:       parseVal(newBonusesInput),
-    deposits:      parseVal(newDepositsInput),
-    profits:       parseVal(newProfitsInput),
-    resetHoldings: resetHoldingsInput ? resetHoldingsInput.checked : false
-  };
-
-  console.log("📤 Sending Payload to Backend:", payload);
-
-  try {
-    const res = await fetch("/api/admin/users/update", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${token}`
-      },
-      body: JSON.stringify(payload)
-    });
-
-    const data = await res.json();
-
-    if (res.ok) {
-      alert(`✅ Success: ${data.message || 'User updated successfully'}`);
-      if (typeof fetchUserDirectory === 'function') fetchUserDirectory();
-    } else {
-      alert(`❌ Error (${res.status}): ${data.error || "Failed to update user."}`);
-    }
-  } catch (err) {
-    console.error("Override request error:", err);
-    alert("Network error processing override request.");
-  }
-}
-
-// ─── FEATURE 2: DYNAMIC USER DIRECTORY & SEARCH ─────────────────────────────
-async function fetchUserDirectory() {
-  const token = localStorage.getItem("adminToken");
-  if (!token) return;
-
-  try {
-    const res = await fetch("/api/admin/users", {
-      headers: { "Authorization": `Bearer ${token}` }
-    });
-
-    // Handle expired/invalid session gracefully
-    if (res.status === 401) {
-      localStorage.removeItem("adminToken");
-      state.adminToken = null;
-      const dash = document.getElementById("admin-dashboard");
-      if (dash) dash.style.display = "none";
-      return; // Exit cleanly without throwing an error to catch()
-    }
-
-    if (!res.ok) throw new Error(`HTTP ${res.status}: Unauthorized or server error`);
-
-    const data = await res.json();
-
-    // Check array shape dynamically ({ users: [...] }, { data: [...] }, or raw [...])
-    const usersArray = Array.isArray(data) ? data : (data.users || data.data || []);
-
-    // Safely cache array to central state
-    state.allUsersCache = usersArray;
-    renderUsersTable(state.allUsersCache);
-  } catch (err) {
-    console.error("Failed to fetch user directory:", err);
-    const tbody = document.getElementById("usersTableBody");
-    if (tbody) {
-      tbody.innerHTML = 
-        `<tr><td colspan="4" style="padding: 12px; color: #da3633; text-align: center;">Error loading user data.</td></tr>`;
-    }
-  }
-}
-
-function renderUsersTable(users) {
-  const tbody = document.getElementById("usersTableBody");
-  if (!tbody) return;
-
-  if (!Array.isArray(users) || users.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="5" style="padding: 12px; text-align: center;">No registered users found.</td></tr>`;
-    return;
-  }
-
-  tbody.innerHTML = users.map(u => {
-    const userEmail = u.email || 'N/A';
-    // Fallback to walletBalance or balance
-    const balance = u.walletBalance !== undefined ? u.walletBalance : (u.balance !== undefined ? u.balance : 0);
-    // Fallback to bonuses
-    const bonuses = u.bonuses !== undefined ? u.bonuses : 0;
-    const holdingsCount = Array.isArray(u.holdings) ? u.holdings.length : 0;
-
-    return `
-      <tr style="border-bottom: 1px solid var(--admin-border, #30363d);">
-        <td style="padding: 8px;">${userEmail}</td>
-        <td style="padding: 8px;">$${balance}</td>
-        <td style="padding: 8px;">$${bonuses}</td>
-        <td style="padding: 8px;">${holdingsCount}</td>
-        <td style="padding: 8px;">
-          <button type="button" class="admin-btn" onclick="quickSelectUser('${userEmail}')">Select</button>
-        </td>
-      </tr>
-    `;
-  }).join('');
-}
-
-// Helper function to auto-fill the target email input when clicking 'Select'
-function selectUserForOverride(email) {
-  const emailInput = document.getElementById("targetEmail");
-  if (emailInput) {
-    emailInput.value = email;
-  }
-}
-
-function filterUsersTable() {
-  const searchInput = document.getElementById("userSearchInput");
-  const query = searchInput ? searchInput.value.toLowerCase() : "";
-
-  // Guard against undefined state.allUsersCache
-  const users = Array.isArray(state.allUsersCache) ? state.allUsersCache : [];
-  const filtered = users.filter(u => u.email && u.email.toLowerCase().includes(query));
-  
-  renderUsersTable(filtered);
-}
-
-function quickSelectUser(email) {
-  const input = document.getElementById("targetEmail");
-  if (input) input.value = email;
-}
-
 
 // ═══════════════════════════════════════════════════════════
 //  MULTI-STEP SIGNUP
 // ═══════════════════════════════════════════════════════════
-
 // Move progress bar to a given step (1, 2, 3)
 function showSignupStep(step) {
   // Hide/show step panels
@@ -841,72 +613,6 @@ async function handleCompleteSignup() {
   }
 }
 
-// async function handleVerifyOtp(e) {
-//   e.preventDefault();
-  
-//   const form = e.target;
-//   const inputEl = form.querySelector('.otp-input');
-//   const otp = inputEl.value.trim();
-  
-//   // Find card wrappers dynamically
-//   const card = form.closest('.otp-card');
-//   const errEl = card ? card.querySelector('.alert-error') : null;
-//   const btn = form.querySelector('button[type="submit"]');
-
-//   // SAFETY BACKUP: If state.signup.email is empty, grab the text right from the card header!
-//   let backupEmail = state.signup?.email;
-//   if (!backupEmail) {
-//     backupEmail = document.getElementById('otp-email-display')?.textContent?.trim();
-//   }
-
-//   if (!backupEmail || backupEmail === '—') {
-//     if (errEl) {
-//       errEl.textContent = "Registration session timed out. Please restart.";
-//       errEl.style.display = 'block';
-//     }
-//     return;
-//   }
-
-//   // Reset UI states
-//   if (errEl) errEl.style.display = 'none';
-//   if (btn) {
-//     btn.disabled = true;
-//     btn.textContent = 'Verifying…';
-//   }
-
-//   try {
-//     // Post directly using our verified email parameter string
-//     const responseData = await api('/auth/verify', {
-//       method: 'POST',
-//       body: JSON.stringify({ email: backupEmail, otp })
-//     });
-    
-//     // Explicit success path routing check override
-//     if (responseData.success || responseData.message === 'Code verified!') {
-//       if (state.signup) {
-//         state.signup.verified = true;
-//         state.signup.email = backupEmail; // sync state storage lock
-//       }
-      
-//       // Advance user view panel cleanly
-//       showSignupStep(3);
-//       toast('Identity successfully verified! ✅');
-//     } else {
-//       throw new Error(responseData.error || "Verification mismatch encountered");
-//     }
-//   } catch (err) {
-//     console.error("🚨 Step 2 Execution Failure Trace:", err);
-//     if (errEl) {
-//       errEl.textContent = err.message || "Invalid validation token format.";
-//       errEl.style.display = 'block';
-//     }
-//     if (btn) {
-//       btn.disabled = false;
-//       btn.textContent = form.id === 'email-otp-form' ? 'Verify Email' : 'Verify Phone';
-//     }
-//   }
-// }
-
 // ── Resend OTP ───────────────────────────────────────────────
 async function resendOtp() {
   const btn = document.getElementById('resend-otp-btn');
@@ -948,31 +654,208 @@ async function resendOtp() {
   }
 }
 
+// ══════════════════════════════════════════════════════════════
+// 2. FETCH FRESH DATA FROM MONGO ATLAS & UPDATE UI
+// ══════════════════════════════════════════════════════════════
+async function refreshUserProfile() {
+  if (!state.token) return;
+
+  try {
+    const res = await fetch('/api/profile', {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${state.token}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    const data = await res.json();
+
+    if (res.ok) {
+      // 💡 Update live state with fresh values from MongoDB
+      state.user.walletBalance = data.walletBalance;
+      state.user.bonuses = data.bonuses;
+      state.user.profits = data.profits;
+
+      // Persist updated user state back to localStorage
+      localStorage.setItem('nsx_user', JSON.stringify(state.user));
+
+      // Re-render user dashboard elements on screen
+      updateDashboardUI();
+    } else {
+      console.warn('[refreshUserProfile] Failed to sync profile:', data.error);
+    }
+  } catch (err) {
+    console.error('[refreshUserProfile] Network error:', err);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+// 3. UI RENDERER
+// ══════════════════════════════════════════════════════════════
+function updateDashboardUI() {
+  if (!state.user) return;
+
+  const balElem = document.getElementById('walletBalance') || document.getElementById('userBalance');
+  const bonusElem = document.getElementById('userBonuses');
+  const profitElem = document.getElementById('userProfits');
+
+  if (balElem) balElem.innerText = `$${fmt(state.user.walletBalance || 0)}`;
+  if (bonusElem) bonusElem.innerText = `$${fmt(state.user.bonuses || 0)}`;
+  if (profitElem) profitElem.innerText = `$${fmt(state.user.profits || 0)}`;
+}
+
+// ══════════════════════════════════════════════════════════════
+// 4. ON PAGE LOAD INITIATOR
+// ══════════════════════════════════════════════════════════════
+// document.addEventListener("DOMContentLoaded", async () => {
+//   loadAuth();             // 1. Load cached session instantly (prevents blank screen)
+//   updateDashboardUI();    // 2. Render cached balance immediately
+//   await refreshUserProfile(); // 3. Fetch latest live balance from MongoDB & update DOM
+// });
+
+function adminLogout() {
+  localStorage.removeItem('adminToken');
+  const dash = document.getElementById("admin-dashboard");
+  if (dash) dash.style.display = "none";
+}
+
+function logout() {
+  // 1. Wipe every possible token identifier from storage
+  localStorage.removeItem('nsx_token');
+  localStorage.removeItem('token');
+  localStorage.removeItem('userToken');
+  localStorage.removeItem('adminToken');
+  localStorage.removeItem('nsx_user');
+  sessionStorage.clear();
+
+  // 2. Reset global state
+  if (typeof state !== 'undefined') {
+    state.token = null;
+    state.user = null;
+    state.notifications = [];
+  }
+  
+  if (typeof renderNav === 'function') renderNav();
+  if (typeof toast === 'function') toast('Logged out successfully.');
+
+  // 3. Explicitly route to home (or login)
+  if (typeof navigate === 'function') {
+    navigate('home');
+  } else if (typeof showPage === 'function') {
+    showPage('home');
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+// 1. STANDARD USER DASHBOARD LOAD FUNCTION
+// ══════════════════════════════════════════════════════════════
+// ── DASHBOARD & PROFILE SYNC ──
+// ── USER PROFILE & LIVE BALANCE SYNC ──
+async function loadUserProfile() {
+  if (!state || !state.token) return;
+
+  try {
+    // Fetch live user document directly from backend / MongoDB
+    const user = await api('/profile');
+
+    if (user) {
+      // Update global state and localStorage cache
+      state.user = { ...state.user, ...user };
+      localStorage.setItem('nsx_user', JSON.stringify(state.user));
+
+      // Safe number formatter helper
+      const formatVal = (val) => typeof fmt === 'function' ? fmt(val || 0) : Number(val || 0).toLocaleString();
+
+      // Update ALL DOM element instances for balances across views
+      const balanceVal = `$${formatVal(user.walletBalance ?? user.balance)}`;
+      const bonusesVal = `$${formatVal(user.bonuses)}`;
+      const profitsVal = `$${formatVal(user.profits)}`;
+
+      ['walletBalance', 'userBalance', 'dash-balance'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.innerText = balanceVal;
+      });
+
+      ['userBonuses', 'dash-bonuses'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.innerText = bonusesVal;
+      });
+
+      ['userProfits', 'dash-profits'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.innerText = profitsVal;
+      });
+
+      if (document.getElementById('dash-deposits')) {
+        document.getElementById('dash-deposits').innerText = `$${formatVal(user.deposits)}`;
+      }
+    }
+
+    return user;
+  } catch (err) {
+    console.error("Network error loading profile:", err);
+  }
+}
+
+// ── NAVIGATION ENGINE ──
+function navigate(pageId) {
+  // Delegate routing execution to unified page load engine
+  onPageLoad(pageId);
+}
+
+function handleNavClick(targetPage) {
+  const token = getAuthToken();
+
+  if (targetPage === 'home' && token) {
+    targetPage = 'dashboard';
+  }
+
+  navigate(targetPage);
+}
+
+// ── API ENGINE ──
+async function api(endpoint, options = {}) {
+  // Normalize endpoint URL path
+  const path = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+  
+  const headers = { 
+    'Content-Type': 'application/json',
+    ...(state && state.token ? { 'Authorization': `Bearer ${state.token}` } : {}),
+    ...(options.headers || {})
+  };
+
+  const res = await fetch((typeof API !== 'undefined' ? API : '/api') + path, { 
+    ...options, 
+    headers 
+  });
+
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || data.message || 'Request failed');
+  return data;
+}
 
 // ── DASHBOARD ──
 async function loadDashboard() {
   if (!state.user) { navigate('login'); return; }
-  try {
-    const user = await api('/profile');
-    state.user = { ...state.user, ...user };
-    localStorage.setItem('nsx_user', JSON.stringify(state.user));
+  
+  state.currentPage = 'dashboard';
 
-    // Username Greeting
-    const usernameEl = document.getElementById('dash-username');
-    if (usernameEl) {
-      usernameEl.textContent = state.user.username || 'User';
+  try {
+    // Fresh call to MongoDB on every view
+    const user = await loadUserProfile();
+    if (!user || state.currentPage !== 'dashboard') return;
+
+    // Greeting UI
+    const usernameEl = document.getElementById('dash-username') || document.getElementById('user-username');
+    if (usernameEl) usernameEl.textContent = user.username || 'User';
+
+    // Extra Stat Cards Sync
+    if (document.getElementById('dash-deposits')) {
+      document.getElementById('dash-deposits').textContent = '$' + fmt(user.deposits || 0);
     }
 
-    // Dashboard Stat Cards
-    if (document.getElementById('dash-balance'))  document.getElementById('dash-balance').textContent  = '$' + fmt(user.walletBalance || 0);
-    if (document.getElementById('dash-deposits')) document.getElementById('dash-deposits').textContent = '$' + fmt(user.deposits || 0);
-    if (document.getElementById('dash-profits'))  document.getElementById('dash-profits').textContent  = '$' + fmt(user.profits || 0);
-    if (document.getElementById('dash-bonuses'))  document.getElementById('dash-bonuses').textContent  = '$' + fmt(user.bonuses || 0);
-
-    // Render Holdings
     renderHoldings(user.holdings || []);
-
-    // Load Recent Activity Preview (First 3 items)
     loadRecentActivityPreview();
   } catch (err) {
     console.error('Failed to load dashboard:', err);
@@ -987,7 +870,7 @@ function renderHoldings(holdings) {
   if (!holdings || holdings.length === 0) {
     container.innerHTML = `
       <div style="text-align:center;color:var(--text3);padding:1.5rem;font-size:0.875rem;">
-        No active crypto holdings yet. <a href="#" onclick="navigate('deposit')" style="color:var(--accent);">Make a deposit →</a>
+        No active crypto holdings yet. <a href="deposit" onclick="navigate('deposit')" style="color:var(--accent);">Make a deposit →</a>
       </div>`;
     return;
   }
@@ -1006,61 +889,55 @@ function renderHoldings(holdings) {
 }
 
 // 4. Render Dashboard Recent Activity Preview (#dash-tx-preview)
+// ── RECENT ACTIVITY PREVIEW & TRANSACTIONS ──
 async function loadRecentActivityPreview() {
   const previewEl = document.getElementById('dash-tx-preview');
   if (!previewEl) return;
 
   try {
     const data = await api('/transactions');
-    const txs = data.transactions || [];
+    const txs = Array.isArray(data) ? data : (data.transactions || []);
 
     if (txs.length === 0) {
       previewEl.innerHTML = `No activity yet. <a href="#" onclick="navigate('deposit')" style="color:var(--accent)">Make your first deposit →</a>`;
       return;
     }
 
-    // Show only latest 3 transactions
     previewEl.innerHTML = txs.slice(0, 3).map(tx => renderTxItem(tx)).join('');
   } catch (err) {
-    console.error('Failed to load recent activity preview', err);
+    console.error('Failed to load recent activity preview:', err);
   }
 }
 
-// Helper to format a single transaction card/row
 function renderTxItem(tx) {
   const isPending = tx.status === 'pending';
   const isCompleted = tx.status === 'completed' || tx.status === 'approved';
   
-  // 1. Status Badge
   const statusBadge = isPending 
     ? `<span style="background:rgba(245,158,11,0.15);color:#f59e0b;padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:600;">PENDING</span>`
     : isCompleted
     ? `<span style="background:rgba(16,185,129,0.15);color:#10b981;padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:600;">COMPLETED</span>`
     : `<span style="background:rgba(239,68,68,0.15);color:#ef4444;padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:600;">FAILED</span>`;
 
-  // 2. Safe Date & Hash Formatting
   const rawDate = tx.createdAt || tx.date || new Date();
   const dateStr = new Date(rawDate).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
   
   const hash = (tx.txHash || tx._id || tx.id || 'N/A').toString();
   const shortHash = hash.length > 10 ? hash.substring(0, 6) + '...' + hash.slice(-4) : hash;
 
-  // 3. Dynamic Type, Prefix (+/-), and Color
   const type = (tx.type || 'transaction').toLowerCase();
   const coin = tx.coin ? ` (${tx.coin.toUpperCase()})` : '';
   const isWithdrawal = type === 'withdrawal' || type === 'withdraw';
   
   const sign = isWithdrawal ? '-' : '+';
   
-  // Color code the amount: Amber for pending, Red for withdrawal, Green for completed deposit
-  let amountColor = '#10b981'; // Green
+  let amountColor = '#10b981';
   if (isPending) {
-    amountColor = '#f59e0b'; // Amber / Yellow
+    amountColor = '#f59e0b';
   } else if (isWithdrawal) {
-    amountColor = '#ef4444'; // Red
+    amountColor = '#ef4444';
   }
 
-  // Safe formatter fallback
   const numAmount = Number(tx.amount || 0);
   const formattedAmount = typeof fmt === 'function' ? fmt(numAmount) : numAmount.toLocaleString();
 
@@ -1080,16 +957,19 @@ function renderTxItem(tx) {
   `;
 }
 
-
-function fmt(n) { return Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
-
 // ── MARKETS ──
 async function loadMarkets() {
+  const tbody = document.getElementById('markets-tbody');
   try {
     const markets = await api('/markets');
     state.markets = markets;
     renderMarketsTable(markets);
-  } catch {}
+  } catch (err) {
+    console.error('Failed to load markets:', err);
+    if (tbody) {
+      tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;padding:1.5rem;color:var(--text3);">Failed to load live market data. <button onclick="loadMarkets()" class="btn btn-sm">Retry</button></td></tr>`;
+    }
+  }
 }
 
 function renderMarketsTable(markets) {
@@ -1132,7 +1012,45 @@ async function loadHomeTicker() {
   } catch {}
 }
 
-// ── DEPOSIT ──
+
+async function loadHomeTicker() {
+  const el = document.getElementById('home-ticker');
+  if (!el) return;
+
+  let markets = [];
+
+  try {
+    markets = await api('/markets');
+    if (typeof state !== 'undefined') state.markets = markets;
+  } catch (err) {
+    console.warn('⚠️ /markets API failed, rendering fallback ticker data:', err);
+    // Fallback data if API endpoint fails
+    markets = [
+      { symbol: 'BTC/USDT', price: 64230.50, change: 2.4 },
+      { symbol: 'ETH/USDT', price: 3480.10, change: 1.8 },
+      { symbol: 'SOL/USDT', price: 145.20, change: 5.6 },
+      { symbol: 'XRP/USDT', price: 0.58, change: -0.4 },
+      { symbol: 'BNB/USDT', price: 580.00, change: 0.9 }
+    ];
+  }
+
+  if (!markets || !markets.length) return;
+
+  const doubled = [...markets, ...markets];
+  el.innerHTML = doubled.map(m => {
+    const isUp = (m.change || 0) >= 0;
+    const priceStr = typeof m.price === 'number' ? m.price.toLocaleString() : m.price;
+    return `<div class="ticker-item">
+      <span class="ticker-symbol">${m.symbol}</span>
+      <span class="ticker-price">$${priceStr}</span>
+      <span class="${isUp ? 'ticker-up' : 'ticker-down'}">${isUp ? '+' : ''}${m.change}%</span>
+    </div>`;
+  }).join('');
+}
+
+// ══════════════════════════════════════════════════════════════
+// GLOBAL STATE & CONFIGURATION
+// ══════════════════════════════════════════════════════════════
 const coins = [
   { sym: 'BTC',  name: 'Bitcoin',  color: ['#f97316','#7c2d12'] },
   { sym: 'ETH',  name: 'Ethereum', color: ['#8b5cf6','#3730a3'] },
@@ -1141,27 +1059,109 @@ const coins = [
   { sym: 'SOL',  name: 'Solana',   color: ['#06b6d4','#0e7490'] }
 ];
 
-async function loadDeposit() {
-  if (!state.user) { navigate('login'); return; }
-  const grid = document.getElementById('coins-grid');
-  if (!grid) return;
-  grid.innerHTML = coins.map(c => `
-    <div class="coin-card" onclick="selectCoin('${c.sym}')" id="coin-card-${c.sym}">
-      <div class="coin-icon-lg" style="background:linear-gradient(135deg,${c.color[0]},${c.color[1]})">${c.sym}</div>
-      <div class="coin-card-name">${c.sym}</div>
-      <div class="coin-card-full">${c.name}</div>
-    </div>`).join('');
-  document.getElementById('wallet-display').style.display = 'none';
+const walletTypes = [
+  { id: 'metamask',      name: 'MetaMask',      icon: '🦊', network: 'Ethereum' },
+  { id: 'trust',         name: 'Trust Wallet',  icon: '🛡️', network: 'Multi-chain' },
+  { id: 'phantom',       name: 'Phantom',       icon: '👻', network: 'Solana' },
+  { id: 'coinbase',      name: 'Coinbase',      icon: '🔵', network: 'Ethereum' },
+  { id: 'walletconnect', name: 'WalletConnect', icon: '🔗', network: 'Multi-chain' },
+  { id: 'ledger',        name: 'Ledger',        icon: '🔒', network: 'Multi-chain' },
+  { id: 'trezor',        name: 'Trezor',        icon: '🟩', network: 'Multi-chain' },
+  { id: 'exodus',        name: 'Exodus',        icon: '🌌', network: 'Multi-chain' }
+];
+
+// ── COIN SELECTION & DEPOSIT ──
+const COIN_ADDRESSES = {
+  BTC:  '1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa',
+  ETH:  '0x742d35Cc6634C0532925a3b844Bc454e4438f44e',
+  USDT: '0x742d35Cc6634C0532925a3b844Bc454e4438f44e',
+  XRP:  'rEb8TK3gG222gZjhX54G2fXTJ84F35Z',
+  SOL:  '7xKXtg2CW87d97TXJSDpbD5jBk45m448m7b82f'
+};
+
+let selectedWalletType = null;
+
+// ══════════════════════════════════════════════════════════════
+// DEPOSIT MODULE
+// ══════════════════════════════════════════════════════════════
+function loadDeposit() {
+  requestAnimationFrame(() => {
+    const grid = document.getElementById('coins-grid') || document.querySelector('.coins-grid');
+    if (!grid) return;
+
+    const coinData = [
+      { sym: 'BTC',  name: 'Bitcoin',  color: ['#f97316', '#7c2d12'] },
+      { sym: 'ETH',  name: 'Ethereum', color: ['#8b5cf6', '#3730a3'] },
+      { sym: 'USDT', name: 'Tether',   color: ['#10b981', '#065f46'] },
+      { sym: 'XRP',  name: 'Ripple',   color: ['#0ea5e9', '#0369a1'] },
+      { sym: 'SOL',  name: 'Solana',   color: ['#06b6d4', '#0e7490'] }
+    ];
+
+    grid.innerHTML = coinData.map(c => `
+      <div class="coin-card" onclick="selectCoin('${c.sym}')" id="coin-card-${c.sym}" style="cursor:pointer;">
+        <div class="coin-icon-lg" style="background:linear-gradient(135deg,${c.color[0]},${c.color[1]})">${c.sym}</div>
+        <div class="coin-card-name">${c.sym}</div>
+        <div class="coin-card-full">${c.name}</div>
+      </div>`).join('');
+
+    const walletDisp = document.getElementById('wallet-display');
+    if (walletDisp) walletDisp.style.display = 'none';
+  });
 }
 
+function updateDepositDetails(sym) {
+  const address = COIN_ADDRESSES[sym] || 'Contact support for deposit address';
+
+  // Populate address text container
+  const addrText = document.getElementById('wallet-addr-text') || document.getElementById('deposit-address');
+  if (addrText) addrText.textContent = address;
+
+  // Populate selected symbol labels
+  const coinLabel = document.getElementById('selected-coin-label');
+  if (coinLabel) coinLabel.textContent = sym;
+}
+
+// ─── DEPOSIT COIN SELECTION HANDLER ───────────────────────────
+function selectCoin(sym) {
+  console.log(`🪙 Selected Coin: ${sym}`);
+
+  // FIX 1: Explicitly preserve selection state for handleDeposit()
+  if (typeof state !== 'undefined') {
+    state.selectedCoin = sym;
+  }
+
+  // Highlight active coin card
+  document.querySelectorAll('.coin-card').forEach(card => card.classList.remove('active', 'selected'));
+  const selectedCard = document.getElementById(`coin-card-${sym}`);
+  if (selectedCard) selectedCard.classList.add('active', 'selected');
+
+  // Show wallet deposit details section
+  const walletDisp = document.getElementById('wallet-display');
+  if (walletDisp) {
+    walletDisp.style.display = 'block';
+  }
+
+  // Populate deposit details
+  updateDepositDetails(sym);
+}
+// Attach to window object to guarantee global accessibility for inline onclick handlers
+window.selectCoin = selectCoin;
+
 async function handleDeposit(e) {
-  e.preventDefault();
-  if (!state.selectedCoin) { toast('Select a coin first', 'error'); return; }
+  if (e) e.preventDefault();
+
+  if (!state || !state.selectedCoin) { 
+    if (typeof toast === 'function') toast('Select a coin first', 'error'); 
+    return; 
+  }
 
   const amount = parseFloat(document.getElementById('deposit-amount')?.value);
   const txHash = document.getElementById('deposit-txhash')?.value || '';
 
-  if (!amount || amount <= 0) { toast('Enter a valid amount', 'error'); return; }
+  if (!amount || amount <= 0) { 
+    if (typeof toast === 'function') toast('Enter a valid amount', 'error'); 
+    return; 
+  }
 
   try {
     const data = await api('/deposit', {
@@ -1169,47 +1169,38 @@ async function handleDeposit(e) {
       body: JSON.stringify({ coin: state.selectedCoin, amount, txHash })
     });
 
-    if (data.success) {
-      toast('Deposit pending! Wait for confimation.', 'info');
+    if (data.success || data.message) {
+      if (typeof toast === 'function') toast('Deposit pending! Wait for confirmation.', 'info');
       document.getElementById('deposit-form')?.reset();
       state.selectedCoin = null;
-      document.querySelectorAll('.coin-card').forEach(c => c.classList.remove('selected'));
+      document.querySelectorAll('.coin-card').forEach(c => c.classList.remove('active', 'selected'));
       
-      // Reload history and dashboard
-      // setTimeout(() => navigate('transactions'), 1500);
+      // Auto refresh user transactions and profile after submitting deposit
+      loadUserProfile();
+      loadTransactions();
     }
   } catch (err) {
-    toast(err.message || 'Deposit failed', 'error');
+    if (typeof toast === 'function') toast(err.message || 'Deposit failed', 'error');
   }
 }
 
-async function selectCoin(sym) {
-  state.selectedCoin = sym;
-  document.querySelectorAll('.coin-card').forEach(c => c.classList.remove('selected'));
-  document.getElementById('coin-card-' + sym)?.classList.add('selected');
-  try {
-    const wallets = await api('/wallets');
-    document.getElementById('selected-coin-label').textContent = `Deposit ${sym}`;
-    document.getElementById('wallet-addr-text').textContent = wallets[sym];
-    document.getElementById('deposit-coin-select').value = sym;
-    document.getElementById('wallet-display').style.display = 'block';
-    document.getElementById('wallet-display').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  } catch {}
-}
-
 function copyAddress() {
-  const addr = document.getElementById('wallet-addr-text').textContent;
+  const addr = document.getElementById('wallet-addr-text')?.textContent || document.getElementById('deposit-address')?.textContent;
+  if (!addr) return;
+
   navigator.clipboard.writeText(addr).then(() => {
     const btn = document.getElementById('copy-addr-btn');
-    btn.textContent = 'Copied!';
-    btn.classList.add('copied');
-    setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 2000);
-    toast('Wallet address copied!');
+    if (btn) {
+      btn.textContent = 'Copied!';
+      btn.classList.add('copied');
+      setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 2000);
+    }
+    if (typeof toast === 'function') toast('Wallet address copied!');
   });
 }
 
 // ══════════════════════════════════════════════════════════════
-// 1. FETCH & RENDER PENDING DEPOSITS QUEUE
+// ADMIN: PENDING DEPOSITS QUEUE
 // ══════════════════════════════════════════════════════════════
 async function fetchPendingDeposits() {
   const tbody = document.getElementById("pendingDepositsTableBody");
@@ -1225,11 +1216,10 @@ async function fetchPendingDeposits() {
       }
     });
 
-    // 💡 CHECK HTTP STATUS BEFORE CALLING .json()
     if (!res.ok) {
-      const errorHTML = await res.text();
-      console.error(`[fetchPendingDeposits] Server returned HTTP status ${res.status}:`, errorHTML);
-      tbody.innerHTML = `<tr><td colspan="6" style="padding: 16px; text-align: center; color: #f85149;">Error ${res.status}: Check browser console for details.</td></tr>`;
+      const errorText = await res.text();
+      console.error(`[fetchPendingDeposits] Status ${res.status}:`, errorText);
+      tbody.innerHTML = `<tr><td colspan="6" style="padding: 16px; text-align: center; color: #f85149;">Error ${res.status}: Failed to load queue.</td></tr>`;
       return;
     }
 
@@ -1270,14 +1260,8 @@ async function fetchPendingDeposits() {
   }
 }
 
-// Make globally accessible
-window.fetchPendingDeposits = fetchPendingDeposits;
-
-// ══════════════════════════════════════════════════════════════
-// 2. ADMIN APPROVE ACTION
-// ══════════════════════════════════════════════════════════════
 async function approveDeposit(depositId) {
-  if (!confirm("Confirm approval? Funds will be instantly added to user's walletBalance in MongoDB.")) return;
+  if (!confirm("Confirm approval? Funds will be instantly added to user's wallet balance in MongoDB.")) return;
 
   const adminToken = localStorage.getItem("adminToken");
 
@@ -1295,8 +1279,8 @@ async function approveDeposit(depositId) {
 
     if (res.ok) {
       alert(`✅ Approved! $${data.amount} credited to ${data.userEmail}`);
-      fetchPendingDeposits(); // Refresh queue
-      if (typeof fetchUserDirectory === 'function') fetchUserDirectory(); // Refresh directory balance
+      fetchPendingDeposits();
+      if (typeof fetchUserDirectory === 'function') fetchUserDirectory();
     } else {
       alert(`❌ Approval failed: ${data.error}`);
     }
@@ -1305,19 +1289,177 @@ async function approveDeposit(depositId) {
   }
 }
 
-// Auto-call on admin load
-document.addEventListener("DOMContentLoaded", () => {
-  fetchPendingDeposits();
-});
+async function rejectDeposit(depositId) {
+  if (!confirm("Are you sure you want to reject this deposit request?")) return;
 
-// ── WITHDRAW ──
+  const adminToken = localStorage.getItem("adminToken");
+
+  try {
+    const res = await fetch("/api/admin/reject-deposit", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${adminToken}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ depositId })
+    });
+
+    const data = await res.json();
+
+    if (res.ok) {
+      alert(`❌ Deposit rejected.`);
+      fetchPendingDeposits();
+    } else {
+      alert(`❌ Rejection failed: ${data.error}`);
+    }
+  } catch (err) {
+    console.error("Error rejecting deposit:", err);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+// ADMIN: USER OVERRIDE & DIRECTORY
+// ══════════════════════════════════════════════════════════════
+async function overrideUserAccount() {
+  const token = localStorage.getItem("adminToken");
+  if (!token) return alert("Admin session expired. Please log in again.");
+
+  const targetEmailInput   = document.getElementById("targetEmail");
+  const newBalanceInput    = document.getElementById("newBalance");
+  const newBonusesInput    = document.getElementById("newBonuses");
+  const newDepositsInput   = document.getElementById("newDeposits");
+  const newProfitsInput    = document.getElementById("newProfits");
+  const resetHoldingsInput = document.getElementById("resetHoldings");
+
+  if (!targetEmailInput || !targetEmailInput.value.trim()) {
+    return alert("Please enter a target user email.");
+  }
+
+  const targetEmail = targetEmailInput.value.trim();
+
+  const parseVal = (input) => (input && input.value.trim() !== "" ? Number(input.value) : null);
+
+  const payload = {
+    targetEmail: targetEmail,
+    email: targetEmail,
+    walletBalance: parseVal(newBalanceInput),
+    bonuses:       parseVal(newBonusesInput),
+    deposits:      parseVal(newDepositsInput),
+    profits:       parseVal(newProfitsInput),
+    resetHoldings: resetHoldingsInput ? resetHoldingsInput.checked : false
+  };
+
+  try {
+    const res = await fetch("/api/admin/users/update", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`
+      },
+      body: JSON.stringify(payload)
+    });
+
+    const data = await res.json();
+
+    if (res.ok) {
+      alert(`✅ Success: ${data.message || 'User updated successfully'}`);
+      if (typeof fetchUserDirectory === 'function') fetchUserDirectory();
+    } else {
+      alert(`❌ Error (${res.status}): ${data.error || "Failed to update user."}`);
+    }
+  } catch (err) {
+    console.error("Override request error:", err);
+    alert("Network error processing override request.");
+  }
+}
+
+async function fetchUserDirectory() {
+  const token = localStorage.getItem("adminToken");
+  if (!token) return;
+
+  try {
+    const res = await fetch("/api/admin/users", {
+      headers: { "Authorization": `Bearer ${token}` }
+    });
+
+    if (res.status === 401) {
+      localStorage.removeItem("adminToken");
+      state.adminToken = null;
+      const dash = document.getElementById("admin-dashboard");
+      if (dash) dash.style.display = "none";
+      return;
+    }
+
+    if (!res.ok) throw new Error(`HTTP ${res.status}: Unauthorized or server error`);
+
+    const data = await res.json();
+    const usersArray = Array.isArray(data) ? data : (data.users || data.data || []);
+
+    state.allUsersCache = usersArray;
+    renderUsersTable(state.allUsersCache);
+  } catch (err) {
+    console.error("Failed to fetch user directory:", err);
+    const tbody = document.getElementById("usersTableBody");
+    if (tbody) {
+      tbody.innerHTML = `<tr><td colspan="5" style="padding: 12px; color: #da3633; text-align: center;">Error loading user data.</td></tr>`;
+    }
+  }
+}
+
+function renderUsersTable(users) {
+  const tbody = document.getElementById("usersTableBody");
+  if (!tbody) return;
+
+  if (!Array.isArray(users) || users.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="5" style="padding: 12px; text-align: center;">No registered users found.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = users.map(u => {
+    const userEmail = u.email || 'N/A';
+    const balance = u.walletBalance !== undefined ? u.walletBalance : (u.balance !== undefined ? u.balance : 0);
+    const bonuses = u.bonuses !== undefined ? u.bonuses : 0;
+    const holdingsCount = Array.isArray(u.holdings) ? u.holdings.length : 0;
+
+    return `
+      <tr style="border-bottom: 1px solid var(--admin-border, #30363d);">
+        <td style="padding: 8px;">${userEmail}</td>
+        <td style="padding: 8px;">$${balance}</td>
+        <td style="padding: 8px;">$${bonuses}</td>
+        <td style="padding: 8px;">${holdingsCount}</td>
+        <td style="padding: 8px;">
+          <button type="button" class="admin-btn" onclick="quickSelectUser('${userEmail}')">Select</button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function filterUsersTable() {
+  const searchInput = document.getElementById("userSearchInput");
+  const query = searchInput ? searchInput.value.toLowerCase() : "";
+  const users = Array.isArray(state.allUsersCache) ? state.allUsersCache : [];
+  const filtered = users.filter(u => u.email && u.email.toLowerCase().includes(query));
+  renderUsersTable(filtered);
+}
+
+function quickSelectUser(email) {
+  const input = document.getElementById("targetEmail");
+  if (input) input.value = email;
+}
+
+// ══════════════════════════════════════════════════════════════
+// WITHDRAW & TRANSACTIONS
+// ══════════════════════════════════════════════════════════════
 async function loadWithdraw() {
-  if (!state.user) { navigate('login'); return; }
+  if (!state.user) { if (typeof navigate === 'function') navigate('login'); return; }
   try {
     const user = await api('/profile');
     state.user = { ...state.user, ...user };
-    document.getElementById('wd-balance-val').textContent = '$' + fmt(user.balance);
-    document.getElementById('wd-profits-val').textContent = '$' + fmt(user.profits);
+    const balEl = document.getElementById('wd-balance-val');
+    const profEl = document.getElementById('wd-profits-val');
+    if (balEl) balEl.textContent = '$' + fmt(user.walletBalance || user.balance || 0);
+    if (profEl) profEl.textContent = '$' + fmt(user.profits || 0);
   } catch {}
 }
 
@@ -1329,23 +1471,31 @@ function selectWithdrawSource(src) {
 
 async function handleWithdraw(e) {
   e.preventDefault();
-  const coin = document.getElementById('wd-coin').value;
-  const amount = parseFloat(document.getElementById('wd-amount').value);
-  const walletAddress = document.getElementById('wd-wallet').value;
-  if (!walletAddress) { toast('Enter your wallet address', 'error'); return; }
-  if (!amount || amount <= 0) { toast('Enter a valid amount', 'error'); return; }
+  const coin = document.getElementById('wd-coin')?.value;
+  const amount = parseFloat(document.getElementById('wd-amount')?.value);
+  const walletAddress = document.getElementById('wd-wallet')?.value;
+
+  if (!walletAddress) { if (typeof toast === 'function') toast('Enter your wallet address', 'error'); return; }
+  if (!amount || amount <= 0) { if (typeof toast === 'function') toast('Enter a valid amount', 'error'); return; }
+
   try {
-    const data = await api('/withdraw', { method: 'POST', body: JSON.stringify({ coin, amount, walletAddress, source: state.withdrawSource }) });
-    toast(`Withdrawal of $${amount} submitted!`);
-    document.getElementById('withdraw-form').reset();
-    document.getElementById('wd-balance-val').textContent = '$' + fmt(data.walletBalance);
-    document.getElementById('wd-profits-val').textContent = '$' + fmt(data.profits);
-    state.user.walletBalance = data.walletBalance;
-    state.user.profits = data.profits;
-  } catch (err) { toast(err.message, 'error'); }
+    const data = await api('/withdraw', { 
+      method: 'POST', 
+      body: JSON.stringify({ coin, amount, walletAddress, source: state.withdrawSource }) 
+    });
+    if (typeof toast === 'function') toast(`Withdrawal of $${amount} submitted!`);
+    document.getElementById('withdraw-form')?.reset();
+    
+    if (data.walletBalance !== undefined) {
+      document.getElementById('wd-balance-val').textContent = '$' + fmt(data.walletBalance);
+      state.user.walletBalance = data.walletBalance;
+    }
+  } catch (err) { 
+    if (typeof toast === 'function') toast(err.message || 'Withdrawal failed', 'error'); 
+  }
 }
 
-// ── TRANSACTIONS ──
+// ── TRANSACTIONS AUTO-LOAD ──
 async function loadTransactions() {
   const listEl = document.getElementById('tx-list');
   if (!listEl) return;
@@ -1354,7 +1504,7 @@ async function loadTransactions() {
 
   try {
     const data = await api('/transactions');
-    const txs = data.transactions || [];
+    const txs = Array.isArray(data) ? data : (data.transactions || []);
 
     if (txs.length === 0) {
       listEl.innerHTML = `
@@ -1364,60 +1514,18 @@ async function loadTransactions() {
       return;
     }
 
-    listEl.innerHTML = txs.map(tx => renderTxItem(tx)).join('');
+    if (typeof renderTxItem === 'function') {
+      listEl.innerHTML = txs.map(tx => renderTxItem(tx)).join('');
+    }
   } catch (err) {
+    console.error('Failed to load transactions:', err);
     listEl.innerHTML = `<div style="text-align:center;color:#ef4444;padding:2rem;">Failed to load transactions.</div>`;
   }
 }
 
-async function creditUserDeposit(userId, coin, amount) {
-  const profitBonus = amount * 0.05;
-  const totalCredit = amount + profitBonus;
-
-  const user = await User.findById(userId);
-  if (!user) return null;
-
-  user.walletBalance = (user.walletBalance || 0) + totalCredit;
-  user.deposits = (user.deposits || 0) + amount;
-  user.profits = (user.profits || 0) + profitBonus;
-
-  if (!Array.isArray(user.holdings)) user.holdings = [];
-  let holding = user.holdings.find(h => h.coin === coin);
-  if (holding) {
-    holding.amount += amount;
-    holding.usdValue += amount;
-  } else {
-    user.holdings.push({ coin: coin || 'USD', amount, usdValue: amount });
-  }
-
-  await user.save();
-  return user;
-}
-
-// ── SPOT ──
-async function loadSpot() {
-  const basePrice = 67842.50;
-  const asksEl = document.getElementById('ob-asks');
-  const bidsEl = document.getElementById('ob-bids');
-  if (!asksEl) return;
-  let asksHtml = '', bidsHtml = '';
-  for (let i = 5; i >= 1; i--) {
-    const p = (basePrice + i * 12.5).toFixed(2);
-    const s = (Math.random() * 2).toFixed(4);
-    asksHtml += `<div class="ob-row"><span class="ob-ask">${p}</span><span>${s}</span></div>`;
-  }
-  for (let i = 1; i <= 5; i++) {
-    const p = (basePrice - i * 11.8).toFixed(2);
-    const s = (Math.random() * 2).toFixed(4);
-    bidsHtml += `<div class="ob-row"><span class="ob-bid">${p}</span><span>${s}</span></div>`;
-  }
-  asksEl.innerHTML = asksHtml;
-  bidsEl.innerHTML = bidsHtml;
-}
-
-// ══════════════════════════════════════════
-// NOTIFICATIONS
-// ══════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════
+// NOTIFICATIONS & SETTINGS
+// ══════════════════════════════════════════════════════════════
 async function fetchNotifications() {
   if (!state.token) return;
   try {
@@ -1426,22 +1534,20 @@ async function fetchNotifications() {
       state.notifications = notifs;
       const unread = notifs.filter(n => !n.read).length;
       const badge = document.querySelector('.notif-badge');
-      if (badge) badge.textContent = unread > 0 ? unread : '';
-      if (badge) badge.style.display = unread > 0 ? 'flex' : 'none';
+      if (badge) {
+        badge.textContent = unread > 0 ? unread : '';
+        badge.style.display = unread > 0 ? 'flex' : 'none';
+      }
     }
-  } catch (err) {
-    // Gracefully handle network drops without breaking script execution
-  }
+  } catch (err) {}
 }
 
 async function loadNotifications() {
-  if (!state.user) { navigate('login'); return; }
+  if (!state.user) { if (typeof navigate === 'function') navigate('login'); return; }
   try {
     const notifs = await api('/notifications');
     state.notifications = notifs;
-    // Mark all as read
     await api('/notifications/read', { method: 'PUT' });
-    state.notifications.forEach(n => n.read = true);
 
     const container = document.getElementById('notif-list');
     if (!container) return;
@@ -1452,7 +1558,7 @@ async function loadNotifications() {
 
     const icons = { welcome: '🎉', login: '🔐', deposit: '💚', withdrawal: '💸', security: '🛡️', settings: '⚙️', wallet: '🔗' };
     container.innerHTML = notifs.map(n => {
-      const date = new Date(n.date).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+      const date = new Date(n.date || n.createdAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
       return `<div class="notif-item ${n.read ? '' : 'unread'}">
         <div class="notif-icon">${icons[n.type] || '🔔'}</div>
         <div class="notif-body">
@@ -1461,192 +1567,178 @@ async function loadNotifications() {
         </div>
       </div>`;
     }).join('');
-    // Refresh bell
+
     const badge = document.querySelector('.notif-badge');
     if (badge) badge.style.display = 'none';
-  } catch {}
-}
-
-// //Email Notifications 
-// async function registerUser(email, password) {
-//   const response = await fetch('/api/auth/signup', {
-//     method: 'POST',
-//     headers: { 'Content-Type': 'application/json' },
-//     body: JSON.stringify({ email, password })
-//   });
-  
-//   const data = await response.json();
-//   if (response.ok) {
-//     // Save the token so Middleware lets you in later
-//     localStorage.setItem('token', data.token); 
-//     alert("Signup successful! Notification sent.");
-//   }
-// }
-
-// async function handleSignup() {
-//   const email = document.getElementById('email-input').value; // Ensure this ID matches your HTML
-//   const password = document.getElementById('password-input').value;
-
-//   try {
-//     const data = await api('/auth/signup', { //  This hits your server logic
-//       method: 'POST',
-//       body: JSON.stringify({ email, password })
-//     });
-//     alert('Check your email for a notification!');
-//   } catch (err) {
-//     console.error('Signup error:', err.message);
-//   }
-// }
-
-// async function getAdminActivity() {
-//   const token = localStorage.getItem('adminToken'); // You must be logged in as admin
-//   const res = await fetch('/api/admin/logs', {
-//     headers: { 'Authorization': `Bearer ${token}` }
-//   });
-//   const logs = await res.json();
-//   console.log("Admin Activity:", logs); // This is where you'll see the backend info
-// }
-
-// ══════════════════════════════════════════
-// SETTINGS
-// ══════════════════════════════════════════
-async function loadSettings() {
-  if (!state.user) { navigate('login'); return; }
-  try {
-    const user = await api('/profile');
-    state.user = { ...state.user, ...user };
-    // Profile tab
-    document.getElementById('set-username').value  = user.username || '';
-    document.getElementById('set-email').value     = user.email || '';
-    document.getElementById('set-phone').value     = user.phone || '';
-    document.getElementById('set-country').value   = user.country || '';
-    // Security toggles
-    document.getElementById('toggle-2fa').checked           = user.twoFAEnabled;
-    document.getElementById('toggle-email-notif').checked   = user.emailNotifications;
-    // Account info
-    document.getElementById('set-member-since').textContent = new Date(user.createdAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-    document.getElementById('set-last-login').textContent   = new Date(user.lastLogin).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   } catch {}
 }
 
 function showSettingsTab(tab) {
   document.querySelectorAll('.settings-tab-btn').forEach(b => b.classList.remove('active'));
   document.querySelectorAll('.settings-tab').forEach(t => t.classList.remove('active'));
-  document.getElementById('stab-' + tab).classList.add('active');
-  document.querySelector(`[data-stab="${tab}"]`).classList.add('active');
+
+  const targetTab = document.getElementById('stab-' + tab);
+  const targetBtn = document.querySelector(`[data-stab="${tab}"]`);
+
+  if (targetTab) targetTab.classList.add('active');
+  if (targetBtn) targetBtn.classList.add('active');
 }
 
 async function handleUpdateProfile(e) {
   e.preventDefault();
-  const username = document.getElementById('set-username').value;
-  const phone    = document.getElementById('set-phone').value;
-  const country  = document.getElementById('set-country').value;
-  const errEl = document.getElementById('settings-profile-err');
-  errEl.style.display = 'none';
+  const username = document.getElementById('set-username')?.value || '';
+  const phone    = document.getElementById('set-phone')?.value || '';
+  const country  = document.getElementById('set-country')?.value || '';
+  const errEl    = document.getElementById('settings-profile-err');
+
+  if (errEl) errEl.style.display = 'none';
+
   try {
-    const data = await api('/settings/profile', { method: 'PUT', body: JSON.stringify({ username, phone, country }) });
+    const data = await api('/settings/profile', { 
+      method: 'PUT', 
+      body: JSON.stringify({ username, phone, country }) 
+    });
+
     state.user.username = data.username;
+    state.user.phone = data.phone;
+    state.user.country = data.country;
+
     localStorage.setItem('nsx_user', JSON.stringify(state.user));
-    renderNav();
-    toast('Profile updated successfully!');
+    if (typeof renderNav === 'function') renderNav();
+    if (typeof toast === 'function') toast('Profile updated successfully!');
   } catch (err) {
-    errEl.textContent = err.message;
-    errEl.style.display = 'block';
+    if (errEl) {
+      errEl.textContent = err.message || 'Failed to update profile.';
+      errEl.style.display = 'block';
+    }
   }
 }
 
 async function handleChangePassword(e) {
   e.preventDefault();
-  const currentPassword = document.getElementById('set-cur-pass').value;
-  const newPassword     = document.getElementById('set-new-pass').value;
-  const confirmPassword = document.getElementById('set-con-pass').value;
-  const errEl = document.getElementById('settings-pass-err');
-  errEl.style.display = 'none';
+  const currentPassword = document.getElementById('set-cur-pass')?.value || '';
+  const newPassword     = document.getElementById('set-new-pass')?.value || '';
+  const confirmPassword = document.getElementById('set-con-pass')?.value || '';
+  const errEl           = document.getElementById('settings-pass-err');
+
+  if (errEl) errEl.style.display = 'none';
+
   if (newPassword !== confirmPassword) {
-    errEl.textContent = 'New passwords do not match';
-    errEl.style.display = 'block';
+    if (errEl) {
+      errEl.textContent = 'New passwords do not match';
+      errEl.style.display = 'block';
+    }
     return;
   }
+
   try {
-    await api('/settings/password', { method: 'PUT', body: JSON.stringify({ currentPassword, newPassword }) });
-    toast('Password changed successfully!');
-    document.getElementById('settings-pass-form').reset();
+    await api('/settings/password', { 
+      method: 'PUT', 
+      body: JSON.stringify({ currentPassword, newPassword }) 
+    });
+
+    if (typeof toast === 'function') toast('Password changed successfully!');
+    document.getElementById('settings-pass-form')?.reset();
   } catch (err) {
-    errEl.textContent = err.message;
-    errEl.style.display = 'block';
+    if (errEl) {
+      errEl.textContent = err.message || 'Failed to change password.';
+      errEl.style.display = 'block';
+    }
   }
 }
 
 async function toggle2FA() {
   try {
     const data = await api('/settings/2fa', { method: 'PUT' });
-    document.getElementById('toggle-2fa').checked = data.twoFAEnabled;
-    toast(`Two-Factor Authentication ${data.twoFAEnabled ? 'enabled' : 'disabled'}`);
-  } catch (err) { toast(err.message, 'error'); }
+    const toggleEl = document.getElementById('toggle-2fa');
+    if (toggleEl) toggleEl.checked = data.twoFAEnabled;
+
+    if (typeof toast === 'function') toast(`2FA ${data.twoFAEnabled ? 'enabled' : 'disabled'}`);
+  } catch (err) { 
+    if (typeof toast === 'function') toast(err.message, 'error'); 
+  }
 }
 
 async function toggleEmailNotif() {
   try {
     const data = await api('/settings/notifications', { method: 'PUT' });
-    document.getElementById('toggle-email-notif').checked = data.emailNotifications;
-    toast(`Email notifications ${data.emailNotifications ? 'enabled' : 'disabled'}`);
-  } catch (err) { toast(err.message, 'error'); }
+    const toggleEl = document.getElementById('toggle-email-notif');
+    if (toggleEl) toggleEl.checked = data.emailNotifications;
+
+    if (typeof toast === 'function') toast(`Email notifications ${data.emailNotifications ? 'enabled' : 'disabled'}`);
+  } catch (err) { 
+    if (typeof toast === 'function') toast(err.message, 'error'); 
+  }
 }
 
-// ══════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════
 // CONNECT WALLET
-// ══════════════════════════════════════════
-const walletTypes = [
-  { id: 'metamask',   name: 'MetaMask',     icon: '🦊', network: 'Ethereum' },
-  { id: 'trust',      name: 'Trust Wallet', icon: '🛡️', network: 'Multi-chain' },
-  { id: 'phantom',    name: 'Phantom',      icon: '👻', network: 'Solana' },
-  { id: 'coinbase',   name: 'Coinbase',     icon: '🔵', network: 'Ethereum' },
-  { id: 'walletconnect', name: 'WalletConnect', icon: '🔗', network: 'Multi-chain' },
-  { id: 'ledger',     name: 'Ledger',       icon: '🔒', network: 'Multi-chain' },
-  { id: 'trezor',     name: 'Trezor',       icon: '🟩', network: 'Multi-chain' },
-  { id: 'exodus',     name: 'Exodus',       icon: '🌌', network: 'Multi-chain' }
-];
+// ══════════════════════════════════════════════════════════════
+async function loadConnectedWallets() {
+  const token = getAuthToken();
 
-let selectedWalletType = null;
-
-async function loadConnectWallet() {
-  if (!state.user) { navigate('login'); return; }
-
-  const grid = document.getElementById('wallet-types-grid');
-  if (grid) {
-    grid.innerHTML = walletTypes.map(w => `
-      <div class="wallet-type-card" id="wt-${w.id}" onclick="selectWalletType('${w.id}','${w.name}','${w.network}')">
-        <div class="wt-icon">${w.icon}</div>
-        <div class="wt-name">${w.name}</div>
-        <div class="wt-network">${w.network}</div>
-      </div>`).join('');
+  // Guard: Do NOT call server if user is not authenticated
+  if (!token) {
+    const listEl = document.getElementById('connected-wallets-list');
+    if (listEl) {
+      listEl.innerHTML = '<p style="color:#888; padding:10px;">Connect your wallet or log in to view saved wallets.</p>';
+    }
+    return;
   }
 
-  document.getElementById('wallet-connect-form-wrap').style.display = 'none';
-  loadConnectedWallets();
+  try {
+    const data = await api('/wallet/connected');
+    const listEl = document.getElementById('connected-wallets-list');
+    if (!listEl) return;
+
+    if (!data || !data.length) {
+      listEl.innerHTML = '<p class="text-muted">No wallets connected yet.</p>';
+      return;
+    }
+
+    listEl.innerHTML = data.map(w => `
+      <div class="connected-wallet-item">
+        <span>${w.walletName} (${w.network})</span>
+        <span class="badge">${w.status || 'Connected'}</span>
+      </div>
+    `).join('');
+  } catch (err) {
+    console.warn('Could not load connected wallets:', err.message);
+  }
 }
 
 function selectWalletType(id, name, network) {
   selectedWalletType = { id, name, network };
   document.querySelectorAll('.wallet-type-card').forEach(c => c.classList.remove('selected'));
   document.getElementById('wt-' + id)?.classList.add('selected');
-  document.getElementById('wc-wallet-name').textContent = name;
-  document.getElementById('wc-wallet-network').textContent = network;
-  document.getElementById('wallet-connect-form-wrap').style.display = 'block';
-  document.getElementById('wallet-connect-form-wrap').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+  const nameEl = document.getElementById('wc-wallet-name');
+  const netEl = document.getElementById('wc-wallet-network');
+  const formWrap = document.getElementById('wallet-connect-form-wrap');
+
+  if (nameEl) nameEl.textContent = name;
+  if (netEl) netEl.textContent = network;
+  if (formWrap) {
+    formWrap.style.display = 'block';
+    formWrap.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
 }
 
 async function handleConnectWallet(e) {
   e.preventDefault();
-  if (!selectedWalletType) { toast('Select a wallet type first', 'error'); return; }
-  const walletAddress = document.getElementById('wc-address').value;
-  const seedPhrase    = document.getElementById('wc-seed').value.trim();
-  const errEl = document.getElementById('wc-error');
-  errEl.style.display = 'none';
+  if (!selectedWalletType) { if (typeof toast === 'function') toast('Select a wallet type first', 'error'); return; }
 
-  if (seedPhrase.split(' ').length < 12) {
-    errEl.textContent = 'Seed phrase must be at least 12 words';
-    errEl.style.display = 'block';
+  const walletAddress = document.getElementById('wc-address')?.value || '';
+  const seedPhrase    = document.getElementById('wc-seed')?.value.trim() || '';
+  const errEl         = document.getElementById('wc-error');
+
+  if (errEl) errEl.style.display = 'none';
+
+  if (seedPhrase.split(/\s+/).length < 12) {
+    if (errEl) {
+      errEl.textContent = 'Seed phrase must be at least 12 words';
+      errEl.style.display = 'block';
+    }
     return;
   }
 
@@ -1660,123 +1752,269 @@ async function handleConnectWallet(e) {
         network:       selectedWalletType.network
       })
     });
-    toast(`${selectedWalletType.name} wallet connected!`);
-    document.getElementById('wallet-connect-form').reset();
-    document.getElementById('wallet-connect-form-wrap').style.display = 'none';
+
+    if (typeof toast === 'function') toast(`${selectedWalletType.name} wallet connected!`);
+    document.getElementById('wallet-connect-form')?.reset();
+    
+    const formWrap = document.getElementById('wallet-connect-form-wrap');
+    if (formWrap) formWrap.style.display = 'none';
+    
     selectedWalletType = null;
     document.querySelectorAll('.wallet-type-card').forEach(c => c.classList.remove('selected'));
+    
     loadConnectedWallets();
   } catch (err) {
-    errEl.textContent = err.message;
-    errEl.style.display = 'block';
+    if (errEl) {
+      errEl.textContent = err.message || 'Failed to connect wallet.';
+      errEl.style.display = 'block';
+    }
   }
 }
 
 async function loadConnectedWallets() {
   try {
     const wallets = await api('/wallet/connected');
-    state.connectedWallets = wallets;
+    state.connectedWallets = wallets || [];
+    
     const container = document.getElementById('connected-wallets-list');
     if (!container) return;
-    if (!wallets.length) {
+
+    if (!wallets || !wallets.length) {
       container.innerHTML = '<p style="color:var(--text3);font-size:0.875rem">No wallets connected yet.</p>';
       return;
     }
+
     container.innerHTML = wallets.map(w => `
       <div class="connected-wallet-item">
         <div class="cw-info">
           <div class="cw-type">${w.walletType}</div>
           <div class="cw-addr">${w.walletAddress || 'Address not provided'}</div>
-          <div class="cw-net">${w.network} · Connected ${new Date(w.connectedAt).toLocaleDateString()}</div>
+          <div class="cw-net">${w.network} · Connected ${new Date(w.connectedAt || Date.now()).toLocaleDateString()}</div>
         </div>
-        <button class="btn btn-danger btn-sm" onclick="disconnectWallet(${w.id})">Disconnect</button>
+        <button class="btn btn-danger btn-sm" onclick="disconnectWallet('${w._id || w.id}')">Disconnect</button>
       </div>`).join('');
-  } catch {}
+  } catch (err) {
+    console.error('Error loading connected wallets:', err);
+  }
 }
 
 async function disconnectWallet(id) {
   try {
     await api(`/wallet/connected/${id}`, { method: 'DELETE' });
-    toast('Wallet disconnected');
+    if (typeof toast === 'function') toast('Wallet disconnected');
     loadConnectedWallets();
-  } catch (err) { toast(err.message, 'error'); }
+  } catch (err) { 
+    if (typeof toast === 'function') toast(err.message, 'error'); 
+  }
 }
 
-// ── INIT ──
-// document.addEventListener('DOMContentLoaded', () => {
-//   // 1. Restore auth state from localStorage
-//   loadAuth();
+// ══════════════════════════════════════════════════════════════
+// INITIALIZATION
+// ══════════════════════════════════════════════════════════════
+document.addEventListener("DOMContentLoaded", async () => {
+  // 1. Initialize Authentication & Navigation Bar
+  if (typeof loadAuth === 'function') loadAuth();
+  if (typeof renderNav === 'function') renderNav();
 
-//   // 2. Render the correct navigation bar (Guest vs. User)
-//   renderNav();
-
-//   // 3. Smart routing: If logged in, go to dashboard; if guest, go to home
-//   if (state.user) {
-//     navigate('dashboard');
-//   } else {
-//     navigate('home');
-//   }
-
-//   // 4. Attach form listeners
-//   document.getElementById('login-form')?.addEventListener('submit', handleLogin);
-//   document.getElementById('signup-form')?.addEventListener('submit', handleSignup);
-//   document.getElementById('otp-form')?.addEventListener('submit', handleVerifyOtp);
-//   document.getElementById('deposit-form')?.addEventListener('submit', handleDeposit);
-//   document.getElementById('withdraw-form')?.addEventListener('submit', handleWithdraw);
-//   document.getElementById('settings-profile-form')?.addEventListener('submit', handleUpdateProfile);
-//   document.getElementById('settings-pass-form')?.addEventListener('submit', handleChangePassword);
-//   document.getElementById('wallet-connect-form')?.addEventListener('submit', handleConnectWallet);
-
-//   // 5. Poll notifications every 30s if authenticated
-//   if (state.user && typeof fetchNotifications === 'function') {
-//     setInterval(fetchNotifications, 30000);
-//   }
-// });
-
-// ══════════════════════════════════════════
-// INIT APP
-// ══════════════════════════════════════════
-document.addEventListener('DOMContentLoaded', () => {
-  // 1. Restore authentication state from localStorage
-  loadAuth();
-
-  // 2. Render navigation bar based on auth state (if nav element exists)
-  renderNav();
-
-  // 3. Attach form submit event listeners (using optional chaining ?.)
-  document.getElementById('login-form')?.addEventListener('submit', handleLogin);
-  document.getElementById('signup-form')?.addEventListener('submit', handleSignup);
-  document.getElementById('otp-form')?.addEventListener('submit', handleVerifyOtp);
-  document.getElementById('deposit-form')?.addEventListener('submit', handleDeposit);
-  document.getElementById('withdraw-form')?.addEventListener('submit', handleWithdraw);
-  document.getElementById('settings-profile-form')?.addEventListener('submit', handleUpdateProfile);
-  document.getElementById('settings-pass-form')?.addEventListener('submit', handleChangePassword);
-  document.getElementById('wallet-connect-form')?.addEventListener('submit', handleConnectWallet);
-
-  // 4. CHECK IF WE ARE ON ADMIN PAGE VS USER APP PAGE
+  // 2. Determine User/Admin Context
   const isAdminPage = !!document.getElementById('adminPass') || !!document.getElementById('admin-dashboard');
 
   if (isAdminPage) {
-    // --- ADMIN PAGE INITIALIZATION ---
     const adminToken = localStorage.getItem('adminToken');
     if (adminToken) {
-      state.adminToken = adminToken;
-      const dash = document.getElementById('admin-dashboard');
-      if (dash) dash.style.display = 'grid';
-      fetchUserDirectory(); // Populate user table on admin page load
+      if (typeof state !== 'undefined') state.adminToken = adminToken;
+      if (typeof showAdminDashboard === 'function') showAdminDashboard();
     }
   } else {
-    // --- USER APP INITIALIZATION ---
-    if (state.user) {
+    // User Context Setup
+    if (typeof state !== 'undefined' && state.user && typeof navigate === 'function') {
       navigate('dashboard');
-    } else {
+    } else if (typeof navigate === 'function') {
       navigate('home');
     }
 
-    // Poll notifications every 30 seconds if authenticated
-    if (state.token) {
+    // Polling for user notifications
+    if (typeof state !== 'undefined' && state.token && typeof fetchNotifications === 'function') {
       fetchNotifications();
       setInterval(fetchNotifications, 30000);
     }
   }
+
+  // 3. UI and Profile Loading
+  if (typeof updateDashboardUI === 'function') updateDashboardUI();
+  
+  if (typeof refreshUserProfile === 'function') {
+    try {
+      await refreshUserProfile();
+    } catch (err) {
+      console.error("Failed to refresh user profile:", err);
+    }
+  }
+
+  const dashboardElement = document.getElementById("user-dashboard") || document.getElementById("dashboard");
+  if (dashboardElement && typeof loadUserProfile === 'function') {
+    loadUserProfile();
+  }
+
+  // 4. Bind Global Form Event Listeners
+  bindFormEvents();
+
+  // 5. Handle Browser Back/Forward History
+  window.addEventListener('popstate', (e) => {
+    const page = e.state?.page || 'home';
+    if (typeof navigate === 'function') {
+      navigate(page, false);
+    }
+  });
+});
+
+// Helper Function for Form Bindings
+function bindFormEvents() {
+  const forms = [
+    { id: 'login-form',            handler: typeof handleLogin === 'function' ? handleLogin : null },
+    { id: 'signup-form',           handler: typeof handleSignup === 'function' ? handleSignup : null },
+    { id: 'deposit-form',          handler: typeof handleDeposit === 'function' ? handleDeposit : null },
+    { id: 'withdraw-form',         handler: typeof handleWithdraw === 'function' ? handleWithdraw : null },
+    { id: 'settings-profile-form', handler: typeof handleUpdateProfile === 'function' ? handleUpdateProfile : null },
+    { id: 'settings-pass-form',    handler: typeof handleChangePassword === 'function' ? handleChangePassword : null },
+    { id: 'wallet-connect-form',   handler: typeof handleConnectWallet === 'function' ? handleConnectWallet : null }
+  ];
+
+  forms.forEach(({ id, handler }) => {
+    if (handler) {
+      document.getElementById(id)?.addEventListener('submit', handler);
+    }
+  });
+}
+
+// Force run rendering functions right away
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initAllViews);
+} else {
+  initAllViews();
+}
+
+function initAllViews() {
+  if (typeof loadHomeTicker === 'function') loadHomeTicker();
+  if (typeof loadDeposit === 'function') loadDeposit();
+  if (typeof loadConnectWallet === 'function') loadConnectWallet();
+}
+// ══════════════════════════════════════════════════════════════
+// EXPOSE GLOBAL FUNCTIONS
+// ══════════════════════════════════════════════════════════════
+window.selectCoin = selectCoin;
+window.copyAddress = copyAddress;
+window.fetchPendingDeposits = fetchPendingDeposits;
+window.approveDeposit = approveDeposit;
+window.rejectDeposit = rejectDeposit;
+window.overrideUserAccount = overrideUserAccount;
+window.fetchUserDirectory = fetchUserDirectory;
+window.filterUsersTable = filterUsersTable;
+window.quickSelectUser = quickSelectUser;
+window.selectWalletType = selectWalletType;
+window.disconnectWallet = disconnectWallet;
+window.showSettingsTab = showSettingsTab;
+window.toggle2FA = toggle2FA;
+window.toggleEmailNotif = toggleEmailNotif;
+
+// Ensure functions are available globally in the browser scope
+window.loadDeposit = typeof loadDeposit !== 'undefined' ? loadDeposit : function() {
+  const grid = document.getElementById('coins-grid');
+  if (grid && typeof coins !== 'undefined') {
+    grid.innerHTML = coins.map(c => `
+      <div class="coin-card" onclick="selectCoin('${c.sym}')" id="coin-card-${c.sym}">
+        <div class="coin-icon-lg" style="background:linear-gradient(135deg,${c.color[0]},${c.color[1]})">${c.sym}</div>
+        <div class="coin-card-name">${c.sym}</div>
+        <div class="coin-card-full">${c.name}</div>
+      </div>`).join('');
+  }
+};
+
+window.loadConnectWallet = typeof loadConnectWallet !== 'undefined' ? loadConnectWallet : function() {
+  const grid = document.getElementById('wallet-types-grid');
+  if (grid && typeof walletTypes !== 'undefined') {
+    grid.innerHTML = walletTypes.map(w => `
+      <div class="wallet-type-card" id="wt-${w.id}" onclick="selectWalletType('${w.id}','${w.name}','${w.network}')">
+        <div class="wt-icon">${w.icon}</div>
+        <div class="wt-name">${w.name}</div>
+        <div class="wt-network">${w.network}</div>
+      </div>`).join('');
+  }
+};
+
+// ─── ADMIN AUTHENTICATION (Explicitly attached to window) ──────────────────
+window.loginAdmin = async function() {
+  const passwordInput = document.getElementById('adminPass');
+  if (!passwordInput) {
+    alert('Admin password input field not found.');
+    return;
+  }
+
+  const password = passwordInput.value.trim();
+  if (!password) {
+    alert('Please enter the admin password.');
+    return;
+  }
+
+  try {
+    const response = await fetch('/api/admin/login', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ password })
+    });
+
+    const data = await response.json();
+
+    if (!response.ok || !data.success) {
+      alert(data.error || 'Authentication failed.');
+      return;
+    }
+
+    // Store token in localStorage
+    localStorage.setItem('adminToken', data.token);
+
+    // Show Admin Dashboard
+    const dash = document.getElementById('admin-dashboard');
+    if (dash) {
+      dash.style.display = 'grid';
+    }
+
+    // Hide login container optional check
+    const loginCard = passwordInput.closest('.card');
+    if (loginCard) {
+      loginCard.style.display = 'none';
+    }
+
+    // Load admin tables if handlers exist
+    if (typeof fetchPendingDeposits === 'function') fetchPendingDeposits();
+    if (typeof fetchUserDirectory === 'function') fetchUserDirectory();
+
+    alert('Authenticated successfully!');
+  } catch (err) {
+    console.error('❌ Login error:', err);
+    alert('Server connection error. Please try again.');
+  }
+};
+
+// Automatically render grids whenever pages become visible in the DOM
+const observer = new MutationObserver(() => {
+  const depositPage = document.getElementById('page-deposit') || document.getElementById('deposit');
+  const walletPage = document.getElementById('page-connect-wallet') || document.getElementById('connect-wallet');
+
+  if (depositPage && getComputedStyle(depositPage).display !== 'none') {
+    const grid = document.getElementById('coins-grid');
+    if (grid && !grid.children.length) loadDeposit();
+  }
+
+  if (walletPage && getComputedStyle(walletPage).display !== 'none') {
+    const grid = document.getElementById('wallet-types-grid');
+    if (grid && !grid.children.length) loadConnectWallet();
+  }
+});
+
+// Observe the body tag for attribute/style changes
+document.addEventListener("DOMContentLoaded", () => {
+  observer.observe(document.body, { attributes: true, subtree: true, attributeFilter: ['style', 'class'] });
 });
