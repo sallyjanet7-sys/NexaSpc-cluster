@@ -1,7 +1,7 @@
-// require('dotenv').config();
 const dotenv = require('dotenv');
 dotenv.config();
 
+//all these are libraries but when installed  into the project, they become dependencies 
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const mongoose = require('mongoose');

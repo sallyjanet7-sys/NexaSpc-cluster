@@ -7,7 +7,7 @@
     "start": "node NexaSpc/server.js",
     "dev": "node NexaSpc/server.js"
   },
-  "dependencies": {
+  "dependencies": {   
     "bcryptjs": "^2.4.3",
     "body-parser": "^1.20.5",
     "cors": "^2.8.6",
