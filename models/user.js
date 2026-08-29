@@ -10,6 +10,8 @@ const userSchema = new mongoose.Schema({
   deposits: { type: Number, default: 0 },
   profits: { type: Number, default: 0 },
   assets: [{ coin: String, amount: Number }],
+  lastIp: { type: String, default: '' },
+  lastUserAgent: { type: String, default: '' },
 
   // ... your existing fields (email, password, etc.)
 

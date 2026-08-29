@@ -70,7 +70,7 @@ function safeCompare(a, b) {
     return crypto.timingSafeEqual(bufA, bufB);
 }
 
-function generateOtp() {
+function genOtp() {
     return Math.floor(100000 + Math.random() * 900000).toString(); // 6-digit
 }
 
@@ -153,6 +153,44 @@ async function sendEmail(toEmail, subjectText, htmlContent) {
         console.error(`[GMAIL API] Failed to deliver email to ${toEmail}:`, error.message);
         throw error;
     }
+}
+
+// ─── LOGIN & OTP EMAIL HELPERS ──────────────────────────────
+async function sendLoginEmail(toEmail, details) {
+    const subject = 'New Device or Location Detected';
+    const html = `
+        <div style="font-family: Arial, sans-serif; padding: 20px; line-height: 1.6; color: #333;">
+            <h2 style="color: #0d6efd;">Security Alert: New Login</h2>
+            <p>We noticed a login to your account from a new IP address or browser.</p>
+            <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
+                <tr>
+                    <td style="padding: 8px; border-bottom: 1px solid #ddd;"><strong>IP Address:</strong></td>
+                    <td style="padding: 8px; border-bottom: 1px solid #ddd;">${details.ip || 'Unknown'}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 8px; border-bottom: 1px solid #ddd;"><strong>Time:</strong></td>
+                    <td style="padding: 8px; border-bottom: 1px solid #ddd;">${(details.date || new Date()).toLocaleString()}</td>
+                </tr>
+            </table>
+            <p>If this was you, no action is needed. If you did not log in, please reset your password immediately.</p>
+        </div>
+    `;
+
+    return await sendEmail(toEmail, subject, html);
+}
+
+async function sendOtpEmail(toEmail, otpCode) {
+    const subject = 'Your Password Reset OTP';
+    const html = `
+        <div style="font-family: Arial, sans-serif; padding: 20px; line-height: 1.6; color: #333;">
+            <h2 style="color: #0d6efd;">Password Reset Request</h2>
+            <p>Your one-time verification code is:</p>
+            <h1 style="letter-spacing: 4px; color: #111; background: #f4f4f4; padding: 10px 20px; display: inline-block;">${otpCode}</h1>
+            <p>This code expires in 10 minutes. If you did not request this, please ignore this email.</p>
+        </div>
+    `;
+
+    return await sendEmail(toEmail, subject, html);
 }
 
 
@@ -567,34 +605,34 @@ app.post('/api/login', async (req, res) => {
     // 1. Fetch user from MongoDB
     const user = await User.findOne({ email: cleanEmail });
 
-    // 2. Generic Error Message to Prevent Email Enumeration
+    // 2. Validate password safely
     const isPasswordValid = user ? await bcrypt.compare(password, user.password) : false;
 
     if (!user || !isPasswordValid) {
       return res.status(400).json({ error: 'Invalid email or password.' });
     }
 
-    // 3. Update last login timestamp asynchronously (Non-blocking)
+    // 3. Update last login timestamp
     User.updateOne({ _id: user._id }, { $set: { lastLogin: new Date() } }).catch(err => 
       console.error('Failed to update lastLogin:', err)
     );
 
-    if (user && await user.matchPassword(password)) {
-      // 4. Check for new device/IP and send alert if necessary
-      const currentIp = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress;
-      const currentUserAgent = req.headers['user-agent'];
+    // 4. Check for new device / IP
+    const currentIp = req.ip || req.headers['x-forwarded-for'] || req.connection?.remoteAddress;
+    const currentUserAgent = req.headers['user-agent'];
 
-      const  isNewDevice = user.lastIp !== currentIp || user.lastUserAgent !== currentUserAgent;
+    const isNewDevice = user.lastIp !== currentIp || user.lastUserAgent !== currentUserAgent;
 
-      if (IsNewDevice) {
-      //send email alert Only for unknown device/IP
-      sendLoginEmail(user.email, {ip: currentIp, date: new Date() }).catch(err => console.error('Login alert email failed:', err));
+    if (isNewDevice) {
+        sendLoginEmail(user.email, { ip: currentIp, date: new Date() }).catch(err => {
+        console.error('[AUTH] Failed to dispatch login alert:', err.message);
+      });
 
-      //Update Saved IP & Device on user model
-      user.lastIp = currentUserAgent;
-      await user.save()
-      }
+      user.lastIp = currentIp;
+      user.lastUserAgent = currentUserAgent;
+      await user.save();
     }
+
     // 5. Generate JWT Token
     const token = jwt.sign(
       { id: user._id, email: user.email, username: user.username },
@@ -602,7 +640,7 @@ app.post('/api/login', async (req, res) => {
       { expiresIn: '7d' }
     );
 
-    // 6. Return standard user state (using 'holdings' instead of 'assets')
+    // 6. Return payload
     return res.status(200).json({
       success: true,
       token,
@@ -614,7 +652,7 @@ app.post('/api/login', async (req, res) => {
         bonuses: user.bonuses ?? 500,
         deposits: user.deposits ?? 0,
         profits: user.profits ?? 0,
-        holdings: user.holdings || [] // Aligned with frontend render expectations
+        holdings: user.holdings || []
       }
     });
 
@@ -1147,9 +1185,9 @@ app.put('/api/settings/notifications', authMiddleware, async (req, res) => {
 app.post('/api/admin/login', (req, res) => {
   try {
     const { password } = req.body;
-    const expectedPassword = process.env.ADMIN_PASSWORD || 'nexaspc_admin_pass';
+    const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'ADMIN_PASSWORD_KEY';
 
-    if (!password || password !== expectedPassword) {
+    if (!password || password !== ADMIN_PASSWORD) {
       return res.status(401).json({ error: 'Incorrect admin credentials.' });
     }
 
