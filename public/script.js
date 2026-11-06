@@ -542,13 +542,13 @@ async function handleSignup(e) {
       `A 6-digit code was sent to ${channelLabel}.`;
 
     // In dev mode the server returns the OTP — show it as a hint
-    if (data.devOtp) {
-      const hint = document.getElementById('otp-dev-hint');
-      if (hint) {
-        hint.textContent = `🔧 Dev mode — your code is: ${data.devOtp}`;
-        hint.style.display = 'block';
-      }
-    }
+    // if (data.devOtp) {
+    //   const hint = document.getElementById('otp-dev-hint');
+    //   if (hint) {
+    //     hint.textContent = `🔧 Dev mode — your code is: ${data.devOtp}`;
+    //     hint.style.display = 'block';
+    //   }
+    // }
 
     showSignupStep(2);
     toast('Verification code sent!');
@@ -1873,6 +1873,7 @@ function bindFormEvents() {
   const forms = [
     { id: 'login-form',            handler: typeof handleLogin === 'function' ? handleLogin : null },
     { id: 'signup-form',           handler: typeof handleSignup === 'function' ? handleSignup : null },
+    { id: 'otp-form',              handler: typeof handleVerifyOtp === 'function' ? handleVerifyOtp : null },
     { id: 'deposit-form',          handler: typeof handleDeposit === 'function' ? handleDeposit : null },
     { id: 'withdraw-form',         handler: typeof handleWithdraw === 'function' ? handleWithdraw : null },
     { id: 'settings-profile-form', handler: typeof handleUpdateProfile === 'function' ? handleUpdateProfile : null },

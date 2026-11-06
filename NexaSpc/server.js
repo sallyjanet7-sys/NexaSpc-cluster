@@ -32,7 +32,7 @@ const Transaction = require('../models/transaction');
 
 // Middleware Setup
 app.use(cors());
-app.use(bodyParser.json());
+app.use(bodyParser.json()); // express already has a bodyparser function, so you just write app.use(express.json()) instead of importing body-parser separately. But both work.
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
 // In-Memory Data Stores
@@ -309,8 +309,16 @@ function adminMiddleware(req, res, next) {
 app.get('/api/wallets', authMiddleware, (req, res) => res.json(platformWallets));
 
 // STEP 1 — INITIATE REGISTRATION
+// How the Flow Usually Works
+// User Action: The user clicks "Sign Up" and sees a form.
+// Data Input: The user types in their information (e.g., email address or phone number).
+// The Trigger: The user clicks a submit button (like "Continue" or "Send Code").
+// The Request: Your frontend application captures that input and sends the POST /api/auth/initiate request to the backend with the user's data.
 app.post('/api/auth/initiate', async (req, res) => {
     try {
+      //You can extract registration details and handle verification routing using Express.js Body Parser to process incoming signup payloads in your Node.js application
+      //req.body is an object containing the text data sent by the user from the frontend (like a signup form or a mobile app) to your server.
+      //When you write const { username, email } = req.body;, you are pulling those specific pieces of input out of the request so you can use them in your code.
         const { username, email, password, phone, verifyVia = 'email' } = req.body;
 
         if (!username || !email || !password) {
@@ -333,7 +341,7 @@ app.post('/api/auth/initiate', async (req, res) => {
             return res.status(400).json({ error: 'An account with this email already exists.' });
         }
 
-        const rawOtp = generateOtp();
+        const rawOtp = genOtp();
         const hashedOtp = hashOtp(rawOtp);
         const expiry = otpExpiry(15);
         const hashedPassword = await bcrypt.hash(password, 10);
@@ -694,7 +702,7 @@ app.post('/api/auth/forgot-password', async (req, res) => {
           resetOtpExpiry: expiry 
         } 
       },
-      { new: true }
+      { returnDocument: 'after' }
     );
 
     // Return uniform message to prevent account harvesting
